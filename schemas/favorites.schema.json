@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/arstulke/aw-manual/main/schemas/favorites.schema.json",
+  "title": "aw-manual favorites file",
+  "description": "A file in favorites.d/ (schema version 1). `favorites` is a mapping (compact notation: titles as keys, properties prefixed with _) or a list (explicit notation).",
+  "type": ["object", "null"],
+  "additionalProperties": false,
+  "required": ["favorites"],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "description": "ID segment: letters, digits, '.', '_' and '-'."
+    },
+    "color": {
+      "type": "string",
+      "pattern": "^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$",
+      "description": "Hex color; quote it in YAML because # starts a comment."
+    },
+    "kind": { "enum": ["activity", "status"] },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "compactNode": {
+      "description": "Empty value = leaf. A list of titles = folder with leaves. A mapping = properties (_id, _color, _icon, _kind) and/or children (titles as keys).",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": ["string", "number", "boolean"], "not": { "type": "string", "pattern": "^_" } }
+        },
+        { "$ref": "#/$defs/compactMapping" }
+      ]
+    },
+    "compactMapping": {
+      "type": "object",
+      "properties": {
+        "_id": { "$ref": "#/$defs/id" },
+        "_color": { "$ref": "#/$defs/color" },
+        "_icon": { "type": "string", "minLength": 1 },
+        "_kind": { "$ref": "#/$defs/kind" }
+      },
+      "patternProperties": {
+        "^_": { "description": "Unknown properties starting with _ are errors." },
+        "^[^_]": { "$ref": "#/$defs/compactNode" }
+      },
+      "propertyNames": {
+        "anyOf": [{ "enum": ["_id", "_color", "_icon", "_kind"] }, { "pattern": "^[^_]" }]
+      }
+    },
+    "explicitNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "$ref": "#/$defs/title" },
+        "color": { "$ref": "#/$defs/color" },
+        "icon": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/kind" },
+        "children": {
+          "oneOf": [{ "type": "array", "items": { "$ref": "#/$defs/explicitNode" } }, { "type": "null" }]
+        }
+      }
+    }
+  },
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "generated": {
+      "type": "boolean",
+      "description": "Marks a generated file; the settings UI shows it read-only."
+    },
+    "parent": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$",
+      "description": "Full ID of a folder (defined in an earlier file) to attach this file's favorites to."
+    },
+    "favorites": {
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Compact notation.",
+          "propertyNames": { "pattern": "^[^_]" },
+          "additionalProperties": { "$ref": "#/$defs/compactNode" }
+        },
+        {
+          "type": "array",
+          "description": "Explicit notation.",
+          "items": { "$ref": "#/$defs/explicitNode" }
+        },
+        { "type": "null" }
+      ]
+    }
+  }
+}

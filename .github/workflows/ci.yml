@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ui:
+    name: UI (check & test)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+
+  rust:
+    name: Rust (fmt, clippy, tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Build the UI (embedded into the daemon)
+        run: npm ci && npm run build
+        working-directory: ui
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Start aw-server (rust and python) for integration tests
+        run: |
+          curl -sSL -o aw.zip https://github.com/ActivityWatch/activitywatch/releases/download/v0.13.2/activitywatch-v0.13.2-linux-x86_64.zip
+          unzip -q aw.zip
+          ./activitywatch/aw-server-rust/aw-server-rust --testing --port 5701 --dbpath "$RUNNER_TEMP/aw-rust.db" &
+          ./activitywatch/aw-server/aw-server --testing --port 5702 &
+          for i in $(seq 1 60); do
+            curl -sf localhost:5701/api/0/info >/dev/null && curl -sf localhost:5702/api/0/info >/dev/null && break
+            sleep 1
+          done
+      - name: Tests
+        run: cargo test --workspace
+        env:
+          AW_TEST_SERVERS: http://localhost:5701,http://localhost:5702
+
+  nix:
+    name: Nix flake
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - run: nix flake check --no-build
+      - run: nix build .#default -L
+
+  bundle:
+    name: Bundle (${{ matrix.name }})
+    needs: [ui, rust]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb
+          - name: macos
+            os: macos-14
+            target: universal-apple-darwin
+            bundles: app,dmg
+          - name: windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: msi,nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.name == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+        working-directory: ui
+      - name: Build the CLI sidecar
+        run: node scripts/prepare-sidecar.mjs --target ${{ matrix.target }}
+      - name: Build the bundles
+        working-directory: crates/daemon
+        shell: bash
+        # Signing (optional): set APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
+        # APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD and APPLE_TEAM_ID as
+        # repository secrets for a signed and notarized dmg. Windows code
+        # signing is configured with bundle.windows.signCommand.
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          args=(--config tauri.release.conf.json --bundles ${{ matrix.bundles }})
+          if [ "${{ matrix.name }}" = "macos" ]; then args+=(--target universal-apple-darwin); fi
+          ../../ui/node_modules/.bin/tauri build "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aw-manual-${{ matrix.name }}
+          path: |
+            target/release/bundle/deb/*.deb
+            target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [bundle, nix]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          draft: true

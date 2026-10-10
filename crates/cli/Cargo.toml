@@ -1,0 +1,7 @@
+[package]
+name="aw-manual-cli"
+version.workspace=true
+edition.workspace=true
+[[bin]]
+name="aw-manual"
+path="src/main.rs"

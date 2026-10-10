@@ -1,0 +1,4 @@
+[package]
+name="aw-manual-daemon"
+version.workspace=true
+edition.workspace=true

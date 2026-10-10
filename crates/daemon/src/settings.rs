@@ -2,7 +2,6 @@
 //! user would, keeping comments and order (see `aw_manual_core::yaml_edit`).
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use aw_manual_core::config::{
     parse_config, CONFIG_FILE, DEFAULT_CONFIG_YAML, DEFAULT_FAVORITES_DIR,
@@ -12,7 +11,7 @@ use aw_manual_core::yaml_edit::{self, NewFavorite, Value as YamlValue};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::app::Svc;
+use aw_manual_core::service::{Service, Ui};
 
 /// File that receives new top-level favorites created in the settings UI.
 pub const UI_FILE: &str = "00-ui.yaml";
@@ -103,7 +102,7 @@ fn check_writable(file: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn first_favorites_dir(svc: &Svc) -> PathBuf {
+fn first_favorites_dir<U: Ui>(svc: &Service<U>) -> PathBuf {
     svc.config()
         .favorite_dirs(svc.config_dir())
         .into_iter()
@@ -112,9 +111,12 @@ fn first_favorites_dir(svc: &Svc) -> PathBuf {
 }
 
 /// Adds a favorite below `parent` (a folder ID) or at the top level.
-pub fn add_favorite(
-    svc: &Arc<Svc>,
+/// Top-level favorites go to `file` (one of [`writable_files`]) or to
+/// `00-ui.yaml`; favorites in a folder go to the file defining that folder.
+pub fn add_favorite<U: Ui>(
+    svc: &Service<U>,
     parent: Option<&str>,
+    file: Option<&Path>,
     fav: &NewFavorite,
 ) -> Result<String, String> {
     let segment = fav.validate().map_err(|e| e.0)?;
@@ -122,11 +124,29 @@ pub fn add_favorite(
         let loaded = svc.loaded();
         let tree = &loaded.favorites.tree;
         match parent.filter(|p| !p.is_empty()) {
-            None => (
-                first_favorites_dir(svc).join(UI_FILE),
-                Vec::new(),
-                segment.clone(),
-            ),
+            None => match file {
+                None => (
+                    first_favorites_dir(svc).join(UI_FILE),
+                    Vec::new(),
+                    segment.clone(),
+                ),
+                Some(f) => {
+                    if !writable_files(svc).iter().any(|w| w == f) {
+                        return Err(format!("{} is not an editable favorites file", f.display()));
+                    }
+                    // A file with `parent` attaches its top level below that folder.
+                    let src = std::fs::read_to_string(f)
+                        .map_err(|e| format!("cannot read {}: {e}", f.display()))?;
+                    let parsed = parse_favorites_file(&src).map_err(|_| {
+                        format!("{} contains errors; please fix it first", f.display())
+                    })?;
+                    let full = match &parsed.parent {
+                        Some(p) => format!("{p}/{segment}"),
+                        None => segment.clone(),
+                    };
+                    (f.to_path_buf(), Vec::new(), full)
+                }
+            },
             Some(pid) => {
                 let folder = tree
                     .find(pid)
@@ -169,7 +189,7 @@ pub fn add_favorite(
     Ok(full_id)
 }
 
-pub fn remove_favorite(svc: &Arc<Svc>, id: &str) -> Result<(), String> {
+pub fn remove_favorite<U: Ui>(svc: &Service<U>, id: &str) -> Result<(), String> {
     let file = {
         let loaded = svc.loaded();
         let f = loaded
@@ -197,7 +217,7 @@ pub fn remove_favorite(svc: &Arc<Svc>, id: &str) -> Result<(), String> {
 }
 
 /// Files the settings UI can write to (non-generated favorites files).
-pub fn writable_files(svc: &Svc) -> Vec<PathBuf> {
+pub fn writable_files<U: Ui>(svc: &Service<U>) -> Vec<PathBuf> {
     svc.favorite_files()
         .into_iter()
         .filter(|f| {
@@ -262,6 +282,99 @@ mod tests {
         assert_eq!(c.notifications.work_hours.days.len(), 2);
         assert_eq!(c.notifications.idle_reminder, None);
         assert!(!dir.join(format!(".{CONFIG_FILE}.tmp")).exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn favorites_are_added_to_the_right_files() {
+        use aw_manual_core::service::Headless;
+        let dir =
+            std::env::temp_dir().join(format!("aw-manual-settings-fav-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let fav_dir = dir.join("cfg/favorites.d");
+        std::fs::create_dir_all(&fav_dir).unwrap();
+        std::fs::write(
+            fav_dir.join("10-clients.yaml"),
+            "# clients\nfavorites:\n  ACME:\n    Website: [Development]\n    Ops:\n      Deploy:\n",
+        )
+        .unwrap();
+        std::fs::write(
+            fav_dir.join("20-extra.yaml"),
+            "parent: acme\nfavorites:\n  Support:\n",
+        )
+        .unwrap();
+        std::fs::write(
+            fav_dir.join("50-gen.yaml"),
+            "generated: true\nfavorites:\n  - id: g\n    title: G\n",
+        )
+        .unwrap();
+        let shutdown = std::sync::Arc::new(tokio::sync::Notify::new());
+        let svc = Service::start(
+            dir.join("cfg"),
+            &dir.join("db.sqlite"),
+            Headless { shutdown },
+        )
+        .unwrap();
+        let fav = |t: &str| NewFavorite {
+            title: t.into(),
+            id: None,
+            kind: None,
+            color: None,
+            icon: None,
+        };
+
+        // Top level: 00-ui.yaml (created).
+        assert_eq!(
+            add_favorite(&svc, None, None, &fav("Lunch")).unwrap(),
+            "lunch"
+        );
+        assert!(std::fs::read_to_string(fav_dir.join(UI_FILE))
+            .unwrap()
+            .contains("Lunch:"));
+        // Into a folder: the file that defines the folder.
+        svc.reload().await;
+        assert_eq!(
+            add_favorite(&svc, Some("acme/ops"), None, &fav("Rollback")).unwrap(),
+            "acme/ops/rollback"
+        );
+        let clients = std::fs::read_to_string(fav_dir.join("10-clients.yaml")).unwrap();
+        assert!(
+            clients.starts_with("# clients\n") && clients.contains("      Rollback:\n"),
+            "{clients}"
+        );
+        // Top level of a picked file with `parent`: attached below that folder.
+        svc.reload().await;
+        let extra = fav_dir.join("20-extra.yaml");
+        assert_eq!(
+            add_favorite(&svc, None, Some(&extra), &fav("Training")).unwrap(),
+            "acme/training"
+        );
+        svc.reload().await;
+        assert!(svc.loaded().favorites.tree.find("acme/training").is_some());
+        // Folders defined in a file with `parent`.
+        assert!(svc.loaded().favorites.tree.find("acme/support").is_some());
+        // Errors: duplicates, leaves, generated files, foreign files.
+        assert!(add_favorite(&svc, None, None, &fav("Lunch"))
+            .unwrap_err()
+            .contains("already exists"));
+        assert!(
+            add_favorite(&svc, Some("acme/website/development"), None, &fav("X"))
+                .unwrap_err()
+                .contains("leaf")
+        );
+        assert!(add_favorite(&svc, None, Some(&fav_dir.join("50-gen.yaml")), &fav("X")).is_err());
+        assert!(add_favorite(&svc, None, Some(&dir.join("elsewhere.yaml")), &fav("X")).is_err());
+        assert!(remove_favorite(&svc, "g")
+            .unwrap_err()
+            .contains("generated"));
+        // Removal from the defining file, also below a `parent`.
+        remove_favorite(&svc, "acme/training").unwrap();
+        remove_favorite(&svc, "acme/ops/deploy").unwrap();
+        svc.reload().await;
+        let t = &svc.loaded().favorites.tree;
+        assert!(t.find("acme/training").is_none());
+        assert!(t.find("acme/ops/deploy").is_none());
+        assert!(t.find("acme/ops/rollback").is_some());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

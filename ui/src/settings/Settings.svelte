@@ -26,6 +26,7 @@
     config_path: string;
     favorite_dirs: string[];
     ui_file: string;
+    writable_files: string[];
     hotkey_errors: string[];
     autostart: boolean;
     wayland: boolean;
@@ -59,6 +60,7 @@
 
   // Favorites form.
   let favParent = $state("");
+  let favFile = $state("");
   let favTitle = $state("");
   let favId = $state("");
   let favKind = $state<"activity" | "status">("activity");
@@ -218,6 +220,7 @@
     try {
       await invoke("add_favorite", {
         parent: favParent || null,
+        file: favParent ? null : favFile || null,
         favorite: {
           title: favTitle,
           id: favId.trim() || null,
@@ -469,6 +472,14 @@
               {#each folders as f}<option value={f.id}>{f.path.join(PATH_SEPARATOR)}</option>{/each}
             </select>
           </label>
+          {#if !favParent}
+            <label>File
+              <select bind:value={favFile}>
+                <option value="">{data.ui_file}{data.writable_files.some((f) => fileName(f) === data?.ui_file) ? "" : " (new)"}</option>
+                {#each data.writable_files.filter((f) => fileName(f) !== data?.ui_file) as f}<option value={f}>{fileName(f)}</option>{/each}
+              </select>
+            </label>
+          {/if}
           <label>Title <input bind:value={favTitle} placeholder="e.g. Development" /></label>
           <label>ID <input bind:value={favId} placeholder="derived from the title" class="mono" /></label>
           <label>Kind

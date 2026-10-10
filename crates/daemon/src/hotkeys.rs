@@ -33,6 +33,7 @@ impl Action {
         }
     }
 
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     fn description(&self) -> String {
         match self {
             Action::Popover => "Open the aw-manual popover".into(),

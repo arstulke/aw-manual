@@ -105,9 +105,8 @@ fn prepare_config_dir(dir: &std::path::Path) -> bool {
     if file.exists() {
         return false;
     }
-    let ok = std::fs::create_dir_all(dir.join(DEFAULT_FAVORITES_DIR)).is_ok()
-        && std::fs::write(&file, DEFAULT_CONFIG_YAML).is_ok();
-    ok
+    std::fs::create_dir_all(dir.join(DEFAULT_FAVORITES_DIR)).is_ok()
+        && std::fs::write(&file, DEFAULT_CONFIG_YAML).is_ok()
 }
 
 fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {

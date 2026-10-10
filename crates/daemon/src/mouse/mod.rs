@@ -28,6 +28,7 @@ pub struct Shared {
     on_press: Box<dyn Fn(u8) + Send + Sync>,
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 impl Shared {
     pub fn buttons(&self) -> HashSet<u8> {
         self.buttons.lock().unwrap().clone()

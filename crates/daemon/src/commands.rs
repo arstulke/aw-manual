@@ -151,10 +151,12 @@ pub async fn save_settings(svc: Svcs<'_>, changes: Vec<Change>) -> Result<(), Ve
 pub async fn add_favorite(
     svc: Svcs<'_>,
     parent: Option<String>,
+    file: Option<String>,
     favorite: NewFavorite,
 ) -> Result<String, String> {
     let svc = svc.inner().clone();
-    let id = settings::add_favorite(&svc, parent.as_deref(), &favorite)?;
+    let file = file.filter(|f| !f.is_empty()).map(std::path::PathBuf::from);
+    let id = settings::add_favorite(&svc, parent.as_deref(), file.as_deref(), &favorite)?;
     svc.reload().await;
     Ok(id)
 }

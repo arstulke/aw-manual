@@ -22,6 +22,7 @@ enum Action {
     OpenPopover,
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 impl Action {
     fn id(self) -> &'static str {
         match self {
@@ -42,6 +43,7 @@ impl Action {
     }
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn run_action(app: &AppHandle, id: &str) {
     let svc = app.state::<Arc<Svc>>().inner().clone();
     let r = match id {

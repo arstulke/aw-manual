@@ -54,16 +54,26 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let handle = app.clone();
     window.on_window_event(move |event| match event {
         WindowEvent::Focused(false) => {
-            // Close when the user clicks elsewhere (but not right after opening).
-            let state = handle.state::<State>();
-            let recent = state
-                .shown_at
-                .lock()
-                .unwrap()
-                .is_some_and(|t| t.elapsed() < Duration::from_millis(400));
-            if state.visible.load(Ordering::SeqCst) && !recent {
-                let _ = hide(&handle);
-            }
+            // Close when the user clicks elsewhere. Keyboard grabs (e.g. by the
+            // global hotkey) cause short focus-out/in flickers, so check again
+            // after a moment whether the focus is really gone.
+            let handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                let state = handle.state::<State>();
+                let recent = state
+                    .shown_at
+                    .lock()
+                    .unwrap()
+                    .is_some_and(|t| t.elapsed() < Duration::from_millis(500));
+                let focused = self::window(&handle)
+                    .and_then(|w| w.is_focused())
+                    .unwrap_or(true);
+                if state.visible.load(Ordering::SeqCst) && !recent && !focused {
+                    tracing::debug!("popover lost the focus, hiding it");
+                    let _ = hide(&handle);
+                }
+            });
         }
         WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
@@ -132,6 +142,7 @@ pub fn show(app: &AppHandle, trigger: &str) -> tauri::Result<()> {
 }
 
 pub fn hide(app: &AppHandle) -> tauri::Result<()> {
+    tracing::debug!("hiding the popover");
     let state = app.state::<State>();
     state.visible.store(false, Ordering::SeqCst);
     let w = window(app)?;
@@ -142,6 +153,10 @@ pub fn hide(app: &AppHandle) -> tauri::Result<()> {
 
 /// The popover hotkey: closed → open; open → confirm (scroll mode).
 pub fn open_or_confirm(app: &AppHandle, source: Source) -> tauri::Result<&'static str> {
+    tracing::debug!(
+        "popover command from {source:?}, visible: {}",
+        is_visible(app)
+    );
     if is_visible(app) {
         let confirm = app
             .state::<std::sync::Arc<Svc>>()

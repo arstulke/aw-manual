@@ -129,8 +129,6 @@ pub fn run(endpoint: Endpoint, options: Options) {
                     std::process::exit(1);
                 }
             };
-            tracing::info!("aw-manual daemon listening on {endpoint}");
-            tokio::spawn(ipc::serve(listener, svc.clone()));
 
             popover::create(&handle)?;
             tray::create(&handle, &svc)?;
@@ -139,6 +137,10 @@ pub fn run(endpoint: Endpoint, options: Options) {
             spawn_change_listener(handle.clone(), svc.clone());
             spawn_tray_ticker(handle.clone(), svc.clone());
             spawn_reminders(handle.clone(), svc.clone());
+
+            // Serve IPC only once the windows exist.
+            tokio::spawn(ipc::serve(listener, svc.clone()));
+            tracing::info!("aw-manual daemon listening on {endpoint}");
 
             // The activity that was running before an unexpected restart.
             let restored = svc.lock_engine().take_restored();

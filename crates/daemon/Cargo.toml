@@ -44,3 +44,9 @@ core-foundation = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
+
+[features]
+# Serve the bundled UI (instead of the Vite dev server). On by default so a
+# plain `cargo build` produces a working binary.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

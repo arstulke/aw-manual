@@ -107,6 +107,7 @@ pub fn apply(app: &AppHandle, cfg: &Config) {
         for (hotkey, action) in key_bindings {
             let a = action.clone();
             let r = gs.on_shortcut(hotkey.as_str(), move |app, _shortcut, event| {
+                tracing::debug!("hotkey {} {:?}", a.id(), event.state);
                 if event.state == ShortcutState::Pressed {
                     trigger(app, &a);
                 }

@@ -4,6 +4,7 @@
 
 pub mod aw;
 pub mod config;
+pub mod display;
 pub mod duration;
 pub mod engine;
 pub mod favorites;

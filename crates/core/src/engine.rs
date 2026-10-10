@@ -582,6 +582,7 @@ impl Engine {
     /// Records a retroactive entry. It takes precedence over overlapping
     /// entries; if it overlaps the running activity, that one restarts at
     /// the end of the entry.
+    #[allow(clippy::too_many_arguments)]
     pub fn log(
         &mut self,
         target: &Target,

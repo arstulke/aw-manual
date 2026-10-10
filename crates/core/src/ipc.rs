@@ -485,10 +485,12 @@ async fn handle_conn<H: Handler>(
         }
         if req.method == "watch" {
             let mut rx = handler.subscribe();
+            let first = handler.status().await;
+            let mut last = without_now(&first);
             let resp = Response {
                 id: req.id,
                 ok: true,
-                result: Some(handler.status().await),
+                result: Some(first),
                 error: None,
             };
             write_json(&mut send, &resp).await?;
@@ -496,15 +498,21 @@ async fn handle_conn<H: Handler>(
                 tokio::select! {
                     r = rx.recv() => match r {
                         Ok(()) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                            let push = Push { event: "status".into(), data: handler.status().await };
-                            write_json(&mut send, &push).await?;
+                            let data = handler.status().await;
+                            let key = without_now(&data);
+                            if key != last {
+                                last = key;
+                                write_json(&mut send, &Push { event: "status".into(), data }).await?;
+                            }
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
                     },
-                    l = lines.next_line() => match l? {
-                        None => return Ok(()),
-                        Some(_) => {} // ignore further input while watching
-                    },
+                    l = lines.next_line() => {
+                        // Further input is ignored while watching; EOF ends the watch.
+                        if l?.is_none() {
+                            return Ok(());
+                        }
+                    }
                 }
             }
         }
@@ -525,6 +533,15 @@ async fn handle_conn<H: Handler>(
         write_json(&mut send, &resp).await?;
     }
     Ok(())
+}
+
+/// A status without its `now` field (to skip pushes that change nothing).
+fn without_now(v: &Value) -> Value {
+    let mut v = v.clone();
+    if let Some(o) = v.as_object_mut() {
+        o.remove("now");
+    }
+    v
 }
 
 /// Parses method parameters.

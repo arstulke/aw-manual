@@ -50,6 +50,8 @@ pub struct RawNode {
     pub kind: Option<Kind>,
     pub children: Vec<RawNode>,
     pub line: usize,
+    /// Whether the ID was set explicitly (`_id` or explicit notation).
+    pub explicit_id: bool,
 }
 
 /// The content of one favorites file.
@@ -415,6 +417,7 @@ fn parse_compact_node(title: String, key: &Node, value: &Node, errs: &mut Errs) 
                                 kind: None,
                                 children: Vec::new(),
                                 line: item.line(),
+                                explicit_id: false,
                             });
                             keys.push(item);
                         }
@@ -452,6 +455,7 @@ fn parse_compact_node(title: String, key: &Node, value: &Node, errs: &mut Errs) 
             ok = false;
         }
     }
+    let explicit_id = id.is_some();
     let segment = derive_segment(&title, id, key, errs)?;
     ok.then_some(RawNode {
         segment,
@@ -461,6 +465,7 @@ fn parse_compact_node(title: String, key: &Node, value: &Node, errs: &mut Errs) 
         kind,
         children,
         line: key.line(),
+        explicit_id,
     })
 }
 
@@ -571,6 +576,7 @@ fn parse_explicit_node(item: &Node, errs: &mut Errs) -> Option<RawNode> {
         kind,
         children,
         line: item.line(),
+        explicit_id: true,
     })
 }
 
@@ -616,6 +622,9 @@ pub struct Favorite {
     own_color: Option<String>,
     #[serde(skip)]
     own_icon: Option<String>,
+    /// Whether the ID was set explicitly (see `config check --strict`).
+    #[serde(skip)]
+    pub explicit_id: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -840,6 +849,7 @@ impl Merger {
                 children,
                 own_color: n.color.clone(),
                 own_icon: n.icon.clone(),
+                explicit_id: n.explicit_id,
             }
         }
         let built: Vec<Favorite> = file
@@ -1401,20 +1411,20 @@ favorites:
         std::fs::write(fav.join("sub/30-c.yaml"), "favorites:\n  C:\n").unwrap();
         std::fs::write(fav.join("x.yaml~"), "favorites:\n  T:\n").unwrap();
         let mut cache = FavoritesCache::default();
-        let l = load_favorites(&[fav.clone()], Some(&mut cache));
+        let l = load_favorites(std::slice::from_ref(&fav), Some(&mut cache));
         let ids: Vec<&str> = l.tree.roots.iter().map(|f| f.id.as_str()).collect();
         assert_eq!(ids, ["a", "b"]);
         assert!(!l.has_errors());
 
         // Break a file: its last valid version stays active.
         std::fs::write(fav.join("10-a.yaml"), "favorites:\n  A:\n    _bad: 1\n").unwrap();
-        let l = load_favorites(&[fav.clone()], Some(&mut cache));
+        let l = load_favorites(std::slice::from_ref(&fav), Some(&mut cache));
         let ids: Vec<&str> = l.tree.roots.iter().map(|f| f.id.as_str()).collect();
         assert_eq!(ids, ["a", "b"]);
         assert!(matches!(l.files[0].status, FileStatus::LastValid { .. }));
 
         // Without cache the file is skipped; other files keep working.
-        let l = load_favorites(&[fav.clone()], None);
+        let l = load_favorites(std::slice::from_ref(&fav), None);
         let ids: Vec<&str> = l.tree.roots.iter().map(|f| f.id.as_str()).collect();
         assert_eq!(ids, ["b"]);
         assert!(matches!(l.files[0].status, FileStatus::Invalid { .. }));
@@ -1422,7 +1432,7 @@ favorites:
 
         // Deleting the file removes it (and its cache entry).
         std::fs::remove_file(fav.join("10-a.yaml")).unwrap();
-        let l = load_favorites(&[fav.clone()], Some(&mut cache));
+        let l = load_favorites(std::slice::from_ref(&fav), Some(&mut cache));
         assert_eq!(l.tree.roots.len(), 1);
         assert!(!cache.last_valid.contains_key(&fav.join("10-a.yaml")));
 
@@ -1438,9 +1448,9 @@ favorites:
         std::fs::write(dir.join("10-a.yaml"), "favorites:\n  A:\n").unwrap();
         std::fs::write(dir.join("20-b.yaml"), "favorites:\n  B:\n").unwrap();
         let mut cache = FavoritesCache::default();
-        load_favorites(&[dir.clone()], Some(&mut cache));
+        load_favorites(std::slice::from_ref(&dir), Some(&mut cache));
         std::fs::write(dir.join("20-b.yaml"), "favorites:\n  B:\n  A:\n").unwrap();
-        let l = load_favorites(&[dir.clone()], Some(&mut cache));
+        let l = load_favorites(std::slice::from_ref(&dir), Some(&mut cache));
         let ids: Vec<&str> = l.tree.roots.iter().map(|f| f.id.as_str()).collect();
         assert_eq!(ids, ["a", "b"]);
         assert!(matches!(l.files[1].status, FileStatus::LastValid { .. }));

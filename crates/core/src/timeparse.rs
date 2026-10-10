@@ -288,7 +288,14 @@ pub fn resolve_range<Tz: TimeZone>(
         return Err("the end of the range must be after its start".into());
     }
     if end_dt > now_utc {
-        return Err("the range must not end in the future".into());
+        let crosses_midnight = matches!(end, EndSpec::Point(PointSpec::Clock { date: None, .. }))
+            && end_dt.with_timezone(&tz).date_naive() != start_date;
+        return Err(if crosses_midnight {
+            "the range must not end in the future (an end before the start means the next day)"
+                .into()
+        } else {
+            "the range must not end in the future".into()
+        });
     }
     Ok((start_dt, end_dt))
 }

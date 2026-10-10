@@ -175,13 +175,11 @@ impl<U: Ui> Service<U> {
         let mut engine_rx = svc.lock_engine().subscribe();
         let tx = svc.changes.clone();
         tokio::spawn(async move {
-            loop {
-                match engine_rx.recv().await {
-                    Ok(()) | Err(broadcast::error::RecvError::Lagged(_)) => {
-                        let _ = tx.send(());
-                    }
-                    Err(broadcast::error::RecvError::Closed) => break,
-                }
+            while !matches!(
+                engine_rx.recv().await,
+                Err(broadcast::error::RecvError::Closed)
+            ) {
+                let _ = tx.send(());
             }
         });
         let mut writer_rx = svc.writer.subscribe();

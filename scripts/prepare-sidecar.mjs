@@ -29,8 +29,11 @@ const exe = target.includes("windows") ? ".exe" : "";
 const dest = join(root, "crates", "daemon", "binaries", `aw-manual-${target}${exe}`);
 mkdirSync(dirname(dest), { recursive: true });
 if (target === "universal-apple-darwin") {
-  // macOS universal binary: build both architectures and merge them.
-  const parts = ["aarch64-apple-darwin", "x86_64-apple-darwin"].map(build);
+  // macOS universal binary: Tauri builds each architecture separately (and
+  // needs a sidecar for each), then merges them; the bundle uses the merged one.
+  const archs = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
+  const parts = archs.map(build);
+  archs.forEach((arch, i) => copyFileSync(parts[i], join(dirname(dest), `aw-manual-${arch}`)));
   execFileSync("lipo", ["-create", "-output", dest, ...parts], { stdio: "inherit" });
 } else {
   copyFileSync(build(target), dest);

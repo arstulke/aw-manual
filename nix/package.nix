@@ -36,7 +36,12 @@ let
     pname = "aw-manual-ui";
     inherit version nodejs;
     src = uiSrc;
-    npmDeps = importNpmLock { npmRoot = uiSrc; };
+    # Read the manifests directly (no import from derivation, so
+    # `nix flake check --no-build` can evaluate the package).
+    npmDeps = importNpmLock {
+      package = lib.importJSON ../ui/package.json;
+      packageLock = lib.importJSON ../ui/package-lock.json;
+    };
     npmConfigHook = importNpmLock.npmConfigHook;
     installPhase = ''
       runHook preInstall

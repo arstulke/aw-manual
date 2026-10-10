@@ -131,6 +131,10 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          # Unset secrets that aren't configured: Tauri would try to sign with empty values.
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!v}" ]; then unset "$v"; fi
+          done
           args=(--config tauri.release.conf.json --bundles ${{ matrix.bundles }})
           if [ "${{ matrix.name }}" = "macos" ]; then args+=(--target universal-apple-darwin); fi
           ../../ui/node_modules/.bin/tauri build "${args[@]}"

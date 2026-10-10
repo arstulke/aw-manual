@@ -1,0 +1,267 @@
+//! Backend of the settings window: reads and writes the same YAML files as a
+//! user would, keeping comments and order (see `aw_manual_core::yaml_edit`).
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use aw_manual_core::config::{
+    parse_config, CONFIG_FILE, DEFAULT_CONFIG_YAML, DEFAULT_FAVORITES_DIR,
+};
+use aw_manual_core::favorites::{is_favorites_file, parse_favorites_file};
+use aw_manual_core::yaml_edit::{self, NewFavorite, Value as YamlValue};
+use serde::Deserialize;
+use serde_json::Value;
+
+use crate::app::Svc;
+
+/// File that receives new top-level favorites created in the settings UI.
+pub const UI_FILE: &str = "00-ui.yaml";
+
+#[derive(Debug, Deserialize)]
+pub struct Change {
+    pub path: Vec<String>,
+    pub value: Value,
+}
+
+/// Writes a file atomically (temporary file + rename), so the file watcher
+/// never sees a half-written file.
+pub fn write_atomic(path: &Path, content: &str) -> std::io::Result<()> {
+    let dir = path.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+    let tmp = dir.join(format!(".{name}.tmp"));
+    std::fs::write(&tmp, content)?;
+    std::fs::rename(&tmp, path)
+}
+
+fn to_yaml_value(v: &Value) -> Result<YamlValue, String> {
+    Ok(match v {
+        Value::String(s) => YamlValue::Str(s.clone()),
+        Value::Bool(b) => YamlValue::Bool(*b),
+        Value::Number(n) => YamlValue::Num(n.as_f64().ok_or("invalid number")?),
+        Value::Array(items) => YamlValue::List(
+            items
+                .iter()
+                .map(|i| {
+                    i.as_str()
+                        .map(str::to_string)
+                        .ok_or_else(|| "lists may only contain text".to_string())
+                })
+                .collect::<Result<_, _>>()?,
+        ),
+        other => return Err(format!("unsupported value {other}")),
+    })
+}
+
+/// Applies changes to `config.yaml`. Nothing is written if the result is invalid.
+pub fn save_config(config_dir: &Path, changes: &[Change]) -> Result<(), Vec<String>> {
+    let path = config_dir.join(CONFIG_FILE);
+    let mut src = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => DEFAULT_CONFIG_YAML.to_string(),
+        Err(e) => return Err(vec![format!("cannot read {}: {e}", path.display())]),
+    };
+    for c in changes {
+        if c.path.is_empty() {
+            return Err(vec!["empty setting path".into()]);
+        }
+        let value = to_yaml_value(&c.value).map_err(|e| vec![e])?;
+        let p: Vec<&str> = c.path.iter().map(String::as_str).collect();
+        src = yaml_edit::set_value(&src, &p, &value)
+            .map_err(|e| vec![format!("{}: {e}", c.path.join("."))])?;
+    }
+    parse_config(&src).map_err(|errs| errs.into_iter().map(|e| e.message).collect::<Vec<_>>())?;
+    write_atomic(&path, &src).map_err(|e| vec![format!("cannot write {}: {e}", path.display())])
+}
+
+/// ID segments of a favorite inside the file that defines it (without the file's `parent`).
+fn segments_in_file(file: &Path, id: &str) -> Result<Vec<String>, String> {
+    let src = std::fs::read_to_string(file)
+        .map_err(|e| format!("cannot read {}: {e}", file.display()))?;
+    let parsed = parse_favorites_file(&src)
+        .map_err(|_| format!("{} contains errors; please fix it first", file.display()))?;
+    let rel = match &parsed.parent {
+        Some(p) => id
+            .strip_prefix(&format!("{p}/"))
+            .ok_or_else(|| format!("\"{id}\" is not defined in {}", file.display()))?,
+        None => id,
+    };
+    Ok(rel.split('/').map(str::to_string).collect())
+}
+
+fn check_writable(file: &Path) -> Result<(), String> {
+    if let Ok(src) = std::fs::read_to_string(file) {
+        if let Ok(p) = parse_favorites_file(&src) {
+            if p.generated {
+                return Err(format!(
+                    "{} is generated and read-only in the settings",
+                    file.display()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn first_favorites_dir(svc: &Svc) -> PathBuf {
+    svc.config()
+        .favorite_dirs(svc.config_dir())
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| svc.config_dir().join(DEFAULT_FAVORITES_DIR))
+}
+
+/// Adds a favorite below `parent` (a folder ID) or at the top level.
+pub fn add_favorite(
+    svc: &Arc<Svc>,
+    parent: Option<&str>,
+    fav: &NewFavorite,
+) -> Result<String, String> {
+    let segment = fav.validate().map_err(|e| e.0)?;
+    let (file, in_file, full_id) = {
+        let loaded = svc.loaded();
+        let tree = &loaded.favorites.tree;
+        match parent.filter(|p| !p.is_empty()) {
+            None => (
+                first_favorites_dir(svc).join(UI_FILE),
+                Vec::new(),
+                segment.clone(),
+            ),
+            Some(pid) => {
+                let folder = tree
+                    .find(pid)
+                    .ok_or_else(|| format!("folder \"{pid}\" not found"))?;
+                if folder.is_leaf() {
+                    return Err(format!(
+                        "\"{pid}\" is a leaf; favorites can only be added to folders"
+                    ));
+                }
+                if folder.generated {
+                    return Err(format!(
+                        "\"{pid}\" comes from a generated file and cannot be edited here"
+                    ));
+                }
+                (
+                    folder.file.clone(),
+                    segments_in_file(&folder.file, pid)?,
+                    format!("{pid}/{segment}"),
+                )
+            }
+        }
+    };
+    if svc.loaded().favorites.tree.find(&full_id).is_some() {
+        return Err(format!(
+            "a favorite with the ID \"{full_id}\" already exists"
+        ));
+    }
+    check_writable(&file)?;
+    let src = match std::fs::read_to_string(&file) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("cannot read {}: {e}", file.display())),
+    };
+    let segs: Vec<&str> = in_file.iter().map(String::as_str).collect();
+    let out = yaml_edit::add_favorite(&src, &segs, fav)
+        .map_err(|e| format!("{}: {e}", file.display()))?;
+    parse_favorites_file(&out)
+        .map_err(|e| format!("the change would make {} invalid: {}", file.display(), e[0]))?;
+    write_atomic(&file, &out).map_err(|e| format!("cannot write {}: {e}", file.display()))?;
+    Ok(full_id)
+}
+
+pub fn remove_favorite(svc: &Arc<Svc>, id: &str) -> Result<(), String> {
+    let file = {
+        let loaded = svc.loaded();
+        let f = loaded
+            .favorites
+            .tree
+            .find(id)
+            .ok_or_else(|| format!("favorite \"{id}\" not found"))?;
+        if f.generated {
+            return Err(format!(
+                "\"{id}\" comes from a generated file and cannot be edited here"
+            ));
+        }
+        f.file.clone()
+    };
+    check_writable(&file)?;
+    let segs_owned = segments_in_file(&file, id)?;
+    let segs: Vec<&str> = segs_owned.iter().map(String::as_str).collect();
+    let src = std::fs::read_to_string(&file)
+        .map_err(|e| format!("cannot read {}: {e}", file.display()))?;
+    let out =
+        yaml_edit::remove_favorite(&src, &segs).map_err(|e| format!("{}: {e}", file.display()))?;
+    parse_favorites_file(&out)
+        .map_err(|e| format!("the change would make {} invalid: {}", file.display(), e[0]))?;
+    write_atomic(&file, &out).map_err(|e| format!("cannot write {}: {e}", file.display()))
+}
+
+/// Files the settings UI can write to (non-generated favorites files).
+pub fn writable_files(svc: &Svc) -> Vec<PathBuf> {
+    svc.favorite_files()
+        .into_iter()
+        .filter(|f| {
+            !f.generated
+                && f.path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(is_favorites_file)
+        })
+        .map(|f| f.path)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_config_keeps_comments_and_validates() {
+        let dir = std::env::temp_dir().join(format!("aw-manual-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Missing file: starts from the commented default.
+        save_config(
+            &dir,
+            &[Change {
+                path: vec!["tray".into(), "display".into()],
+                value: Value::String("elapsed".into()),
+            }],
+        )
+        .unwrap();
+        let src = std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap();
+        assert!(src.contains("display: elapsed"));
+        assert!(src.contains("# a remote aw-server is possible as well"));
+        // Invalid values are rejected and nothing is written.
+        let errs = save_config(
+            &dir,
+            &[Change {
+                path: vec!["popover".into(), "scroll".into(), "timeout".into()],
+                value: Value::String("1s".into()),
+            }],
+        )
+        .unwrap_err();
+        assert!(errs[0].contains("timeout"), "{errs:?}");
+        assert_eq!(std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap(), src);
+        // Lists and booleans.
+        save_config(
+            &dir,
+            &[
+                Change {
+                    path: vec!["notifications".into(), "work_hours".into(), "days".into()],
+                    value: serde_json::json!(["mon", "wed"]),
+                },
+                Change {
+                    path: vec!["notifications".into(), "idle_reminder".into()],
+                    value: Value::Bool(false),
+                },
+            ],
+        )
+        .unwrap();
+        let c = parse_config(&std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap()).unwrap();
+        assert_eq!(c.notifications.work_hours.days.len(), 2);
+        assert_eq!(c.notifications.idle_reminder, None);
+        assert!(!dir.join(format!(".{CONFIG_FILE}.tmp")).exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

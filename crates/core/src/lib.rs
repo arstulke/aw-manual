@@ -18,3 +18,4 @@ pub mod store;
 pub mod timeparse;
 pub mod writer;
 pub mod yaml;
+pub mod yaml_edit;

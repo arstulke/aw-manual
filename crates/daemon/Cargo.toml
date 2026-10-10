@@ -1,4 +1,46 @@
 [package]
-name="aw-manual-daemon"
-version.workspace=true
-edition.workspace=true
+name = "aw-manual-daemon"
+description = "aw-manual desktop daemon: tray, popover, hotkeys and notifications"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "aw-manual-daemon"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+aw-manual-core.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+tracing.workspace = true
+tauri = { version = "2.12", features = ["tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = "2.4"
+tauri-plugin-autostart = "2.7"
+tauri-plugin-notification = "2.5"
+tauri-plugin-opener = "2"
+notify = "8"
+notify-debouncer-mini = "0.7"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+notify-rust = "4"
+ashpd = { version = "0.11", default-features = false, features = ["tokio"] }
+futures-util = "0.3"
+x11rb = "0.13"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.25"
+core-foundation = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }

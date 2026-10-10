@@ -513,7 +513,6 @@ pub fn validate_hotkey(s: &str) -> Result<(), String> {
         "option",
         "shift",
         "super",
-        "meta",
         "cmd",
         "command",
         "commandorcontrol",
@@ -530,7 +529,10 @@ pub fn validate_hotkey(s: &str) -> Result<(), String> {
         .filter(|p| !MODIFIERS.contains(&p.to_ascii_lowercase().as_str()))
         .collect();
     match keys.len() {
-        1 => Ok(()),
+        1 if !MODIFIERS.contains(&parts[parts.len() - 1].to_ascii_lowercase().as_str()) => Ok(()),
+        1 => Err(format!(
+            "hotkey \"{s}\": the key must come after the modifiers"
+        )),
         0 => Err(format!("hotkey \"{s}\" has no key, only modifiers")),
         _ => Err(format!(
             "hotkey \"{s}\" must contain exactly one non-modifier key"
@@ -1200,6 +1202,7 @@ openaction:
         assert!(validate_hotkey("F13").is_ok());
         assert!(validate_hotkey("Ctrl+").is_err());
         assert!(validate_hotkey("Ctrl+A+B").is_err());
+        assert!(validate_hotkey("A+Ctrl").is_err());
     }
 
     #[test]

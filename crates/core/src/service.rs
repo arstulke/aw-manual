@@ -25,6 +25,8 @@ use crate::yaml::YamlError;
 pub trait Ui: Send + Sync + 'static {
     /// Opens the popover, or confirms (scroll mode) if it is already open.
     fn popover(&self, source: Source) -> Result<Value, IpcError>;
+    /// Shows the popover without confirming anything (second instance started).
+    fn show_popover(&self) -> Result<Value, IpcError>;
     fn nav(&self, command: NavCommand) -> Result<Value, IpcError>;
     fn settings(&self) -> Result<Value, IpcError>;
     fn quit(&self);
@@ -37,6 +39,12 @@ pub struct Headless {
 
 impl Ui for Headless {
     fn popover(&self, _: Source) -> Result<Value, IpcError> {
+        Err(IpcError::new(
+            ErrorCode::Unavailable,
+            "the daemon runs headless; there is no popover",
+        ))
+    }
+    fn show_popover(&self) -> Result<Value, IpcError> {
         Err(IpcError::new(
             ErrorCode::Unavailable,
             "the daemon runs headless; there is no popover",
@@ -371,6 +379,7 @@ impl<U: Ui> Service<U> {
                 })?;
                 self.ui.popover(p.source)
             }
+            "show_popover" => self.ui.show_popover(),
             "nav" => {
                 let p: NavParams = ipc::params(params)?;
                 self.ui.nav(p.command)

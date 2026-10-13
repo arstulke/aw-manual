@@ -28,7 +28,6 @@ tauri-plugin-autostart = "2.7"
 tauri-plugin-notification = "2.5"
 tauri-plugin-opener = "2"
 notify = "8"
-notify-debouncer-mini = "0.7"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
 

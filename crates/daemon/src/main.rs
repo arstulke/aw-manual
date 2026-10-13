@@ -88,6 +88,13 @@ fn main() {
     if headless {
         run_headless(endpoint);
     } else {
+        // WebKitGTK's DMA-BUF renderer kills the process with "Error 71
+        // (Protocol error) dispatching to Wayland display" on several setups
+        // (notably NVIDIA). Disable it unless the user decided otherwise.
+        #[cfg(target_os = "linux")]
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
         app::run(
             endpoint,
             Options {

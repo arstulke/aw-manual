@@ -45,7 +45,10 @@
     ],
     "linux": {
       "deb": {
-        "section": "utils"
+        "section": "utils",
+        "files": {
+          "/usr/share/applications/io.github.arstulke.aw-manual.desktop": "linux/io.github.arstulke.aw-manual.desktop"
+        }
       }
     },
     "macOS": {

@@ -159,6 +159,7 @@ mod portal {
     use futures_util::StreamExt;
 
     static TASK: Mutex<Option<tauri::async_runtime::JoinHandle<()>>> = Mutex::new(None);
+    static REGISTERED: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 
     /// Converts `Ctrl+Alt+Space` to the portal's trigger format `CTRL+ALT+space`.
     pub fn portal_trigger(hotkey: &str) -> String {
@@ -202,7 +203,27 @@ mod portal {
         *TASK.lock().unwrap() = Some(task);
     }
 
+    /// Unsandboxed apps have no app ID the portal can derive, and some backends
+    /// (xdg-desktop-portal-gnome) refuse global shortcuts without one. Registers
+    /// the bundle identifier (needs a matching `<identifier>.desktop` file) once
+    /// per D-Bus connection, before any other portal call.
+    async fn register_host_app(app: &AppHandle) {
+        REGISTERED
+            .get_or_init(|| async {
+                let id = app.config().identifier.clone();
+                let r = match ashpd::AppID::try_from(id.as_str()) {
+                    Ok(app_id) => ashpd::register_host_app(app_id).await,
+                    Err(e) => Err(e),
+                };
+                if let Err(e) = r {
+                    tracing::warn!("cannot register app id {id} with the portal: {e}");
+                }
+            })
+            .await;
+    }
+
     async fn run(app: &AppHandle, bindings: Vec<(String, Action)>) -> ashpd::Result<()> {
+        register_host_app(app).await;
         let portal = GlobalShortcuts::new().await?;
         let session = portal.create_session().await?;
         let shortcuts: Vec<NewShortcut> = bindings

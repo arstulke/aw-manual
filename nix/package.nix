@@ -103,7 +103,7 @@ rustPlatform.buildRustPackage {
     install -Dm644 crates/daemon/icons/32x32.png $out/share/icons/hicolor/32x32/apps/aw-manual.png
     install -Dm644 crates/daemon/icons/128x128.png $out/share/icons/hicolor/128x128/apps/aw-manual.png
     install -Dm644 crates/daemon/icons/128x128@2x.png $out/share/icons/hicolor/256x256/apps/aw-manual.png
-    install -Dm644 /dev/stdin $out/share/applications/aw-manual.desktop <<DESKTOP
+    install -Dm644 /dev/stdin $out/share/applications/io.github.arstulke.aw-manual.desktop <<DESKTOP
     [Desktop Entry]
     Type=Application
     Name=aw-manual

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=aw-manual
+Comment=Manual activity tracking for ActivityWatch
+Exec=aw-manual-daemon
+Icon=aw-manual
+Categories=Office;Utility;
+StartupWMClass=aw-manual-daemon
+Terminal=false
+NoDisplay=true

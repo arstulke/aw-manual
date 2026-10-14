@@ -1,6 +1,6 @@
 {
   lib,
-  rustPlatform,
+  craneLib,
   buildNpmPackage,
   importNpmLock,
   nodejs,
@@ -49,87 +49,102 @@ let
       runHook postInstall
     '';
   };
-in
-rustPlatform.buildRustPackage {
-  pname = "aw-manual";
-  inherit version;
 
-  src = fs.toSource {
-    root = ../.;
-    fileset = fs.unions [
-      ../Cargo.toml
-      ../Cargo.lock
-      ../crates
-      uiFiles
+  # Arguments shared by the dependency and the package build. They must match,
+  # otherwise cargo considers the cached dependencies stale and rebuilds them.
+  commonArgs = {
+    pname = "aw-manual";
+    inherit version;
+
+    src = fs.toSource {
+      root = ../.;
+      fileset = fs.unions [
+        ../Cargo.toml
+        ../Cargo.lock
+        ../crates
+        uiFiles
+      ];
+    };
+
+    strictDeps = true;
+
+    cargoExtraArgs = "--locked";
+    cargoBuildExtraArgs = "-p aw-manual-cli -p aw-manual-daemon";
+
+    nativeBuildInputs = [
+      pkg-config
+      wrapGAppsHook3
     ];
+
+    buildInputs = [
+      webkitgtk_4_1
+      gtk3
+      libayatana-appindicator
+      librsvg
+      libsoup_3
+      openssl
+      glib-networking
+      dbus
+    ];
+
+    # Only the daemon needs the GTK environment; the CLI stays a plain binary.
+    dontWrapGApps = true;
   };
 
-  cargoLock.lockFile = ../Cargo.lock;
+  # All Rust dependencies, built from the Cargo manifests and the lock file
+  # only. Rebuilt when Cargo.toml or Cargo.lock change, not on code changes.
+  cargoArtifacts = craneLib.buildDepsOnly (
+    commonArgs
+    // {
+      # The package build runs no `cargo check`; skip it here as well.
+      cargoCheckCommand = "true";
+      cargoTestExtraArgs = "--no-run -p aw-manual-core";
+    }
+  );
+in
+craneLib.buildPackage (
+  commonArgs
+  // {
+    inherit cargoArtifacts;
 
-  cargoBuildFlags = [
-    "-p"
-    "aw-manual-cli"
-    "-p"
-    "aw-manual-daemon"
-  ];
-  cargoTestFlags = [
-    "-p"
-    "aw-manual-core"
-  ];
+    cargoTestExtraArgs = "-p aw-manual-core";
 
-  nativeBuildInputs = [
-    pkg-config
-    wrapGAppsHook3
-  ];
+    preBuild = ''
+      rm -rf ui/dist
+      cp -r ${ui} ui/dist
+      chmod -R u+w ui/dist
+    '';
 
-  buildInputs = [
-    webkitgtk_4_1
-    gtk3
-    libayatana-appindicator
-    librsvg
-    libsoup_3
-    openssl
-    glib-networking
-    dbus
-  ];
+    postInstall = ''
+      install -Dm644 crates/daemon/icons/32x32.png $out/share/icons/hicolor/32x32/apps/aw-manual.png
+      install -Dm644 crates/daemon/icons/128x128.png $out/share/icons/hicolor/128x128/apps/aw-manual.png
+      install -Dm644 crates/daemon/icons/128x128@2x.png $out/share/icons/hicolor/256x256/apps/aw-manual.png
+      install -Dm644 /dev/stdin $out/share/applications/io.github.arstulke.aw-manual.desktop <<DESKTOP
+      [Desktop Entry]
+      Type=Application
+      Name=aw-manual
+      Comment=Manual activity tracking for ActivityWatch
+      Exec=aw-manual-daemon
+      Icon=aw-manual
+      Categories=Office;Utility;
+      StartupWMClass=aw-manual-daemon
+      Terminal=false
+      DESKTOP
+    '';
 
-  preBuild = ''
-    rm -rf ui/dist
-    cp -r ${ui} ui/dist
-    chmod -R u+w ui/dist
-  '';
+    postFixup = ''
+      wrapGApp $out/bin/aw-manual-daemon \
+        --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ libayatana-appindicator ]}
+    '';
 
-  postInstall = ''
-    install -Dm644 crates/daemon/icons/32x32.png $out/share/icons/hicolor/32x32/apps/aw-manual.png
-    install -Dm644 crates/daemon/icons/128x128.png $out/share/icons/hicolor/128x128/apps/aw-manual.png
-    install -Dm644 crates/daemon/icons/128x128@2x.png $out/share/icons/hicolor/256x256/apps/aw-manual.png
-    install -Dm644 /dev/stdin $out/share/applications/io.github.arstulke.aw-manual.desktop <<DESKTOP
-    [Desktop Entry]
-    Type=Application
-    Name=aw-manual
-    Comment=Manual activity tracking for ActivityWatch
-    Exec=aw-manual-daemon
-    Icon=aw-manual
-    Categories=Office;Utility;
-    StartupWMClass=aw-manual-daemon
-    Terminal=false
-    DESKTOP
-  '';
+    passthru = { inherit ui cargoArtifacts; };
 
-  # Only the daemon needs the GTK environment; the CLI stays a plain binary.
-  dontWrapGApps = true;
-  postFixup = ''
-    wrapGApp $out/bin/aw-manual-daemon \
-      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ libayatana-appindicator ]}
-  '';
-
-  passthru = { inherit ui; };
-
-  meta = {
-    description = "Fast manual activity tracking for ActivityWatch (popover, tray, hotkeys, CLI)";
-    homepage = "https://github.com/arstulke/aw-manual";
-    license = lib.licenses.mpl20;
-    mainProgram = "aw-manual";
-    platforms = lib.platforms.linux;
-  };
-}
+    meta = {
+      description = "Fast manual activity tracking for ActivityWatch (popover, tray, hotkeys, CLI)";
+      homepage = "https://github.com/arstulke/aw-manual";
+      license = lib.licenses.mpl20;
+      mainProgram = "aw-manual";
+      platforms = lib.platforms.linux;
+    };
+  }
+)

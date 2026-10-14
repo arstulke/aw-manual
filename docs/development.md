@@ -68,7 +68,10 @@ cd crates/daemon
   `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`).
 - Windows: `--bundles msi,nsis`. Both installers put the CLI on `PATH`
   (`crates/daemon/windows/`). Code signing: `bundle.windows.signCommand`.
-- Nix: `nix build`.
+- Nix: `nix build`. The Rust dependencies are built in a separate derivation
+  ([crane](https://crane.dev), `.#default.cargoArtifacts`) that only depends on
+  `Cargo.toml` and `Cargo.lock`, so code changes only recompile the workspace
+  crates.
 
 The GitHub workflow builds all of them and attaches them to a draft release
 for `v*` tags.

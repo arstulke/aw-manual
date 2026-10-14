@@ -1,10 +1,19 @@
 {
   description = "aw-manual – fast manual activity tracking for ActivityWatch";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Builds the Rust dependencies in a separate derivation, so code changes
+    # only recompile the workspace crates.
+    crane.url = "github:ipetkov/crane";
+  };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      crane,
+    }:
     let
       systems = [
         "x86_64-linux"
@@ -14,12 +23,12 @@
     in
     {
       packages = forAllSystems (pkgs: rec {
-        aw-manual = pkgs.callPackage ./nix/package.nix { };
+        aw-manual = pkgs.callPackage ./nix/package.nix { craneLib = crane.mkLib pkgs; };
         default = aw-manual;
       });
 
       overlays.default = final: _prev: {
-        aw-manual = final.callPackage ./nix/package.nix { };
+        aw-manual = final.callPackage ./nix/package.nix { craneLib = crane.mkLib final; };
       };
 
       nixosModules.default = import ./nix/nixos-module.nix self;

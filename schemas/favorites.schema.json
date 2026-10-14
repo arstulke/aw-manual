@@ -75,7 +75,7 @@
     "parent": {
       "type": ["string", "null"],
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$",
-      "description": "Full ID of a folder (defined in an earlier file) to attach this file's favorites to."
+      "description": "Full ID of a folder or leaf (defined in an earlier file) to attach this file's favorites to. A leaf becomes a folder once favorites are attached to it."
     },
     "favorites": {
       "oneOf": [

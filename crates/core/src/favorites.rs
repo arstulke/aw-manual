@@ -778,11 +778,7 @@ impl Merger {
                             "parent \"{p}\" does not exist (it must be defined in a file that is loaded before this one)"
                         )))
                     }
-                    Some(f) if f.is_leaf() => {
-                        return Err(err(format!(
-                            "parent \"{p}\" is a leaf; adding children would turn it into a folder"
-                        )))
-                    }
+                    // A leaf becomes a folder once another file adds children to it.
                     Some(f) => (format!("{p}/"), f.path.clone()),
                 }
             }
@@ -859,12 +855,14 @@ impl Merger {
             .collect();
         match &file.parent {
             None => self.tree.roots.extend(built),
-            Some(p) => self
-                .tree
-                .find_mut(p)
-                .expect("parent checked above")
-                .children
-                .extend(built),
+            Some(p) => {
+                let parent = self.tree.find_mut(p).expect("parent checked above");
+                if !built.is_empty() && parent.is_leaf() {
+                    parent.node_type = NodeType::Folder;
+                    parent.kind = None;
+                }
+                parent.children.extend(built);
+            }
         }
         for (id, line) in new_ids {
             self.ids.insert(id, (path.to_path_buf(), line));
@@ -1295,9 +1293,36 @@ favorites:
         let (_, e) = tree(&[("10.yaml", CLIENTS), ("20.yaml", missing)]);
         assert!(e[0].1.message.contains("does not exist"));
         assert_eq!(e[0].1.line, 1);
-        let leaf = "parent: break\nfavorites:\n  X:\n";
+    }
+
+    #[test]
+    fn parent_leaf_becomes_folder() {
+        let leaf =
+            "parent: acme/website/code-review\nfavorites:\n  - id: web-1\n    title: WEB-1\n";
         let (t, e) = tree(&[("10.yaml", CLIENTS), ("20.yaml", leaf)]);
-        assert!(e[0].1.message.contains("is a leaf"));
+        assert!(e.is_empty(), "{e:?}");
+        let review = t.find("acme/website/code-review").unwrap();
+        assert!(!review.is_leaf());
+        assert_eq!(review.kind, None);
+        let child = t.find("acme/website/code-review/web-1").unwrap();
+        assert!(child.is_leaf());
+        assert_eq!(child.path, vec!["ACME", "Website", "Code Review", "WEB-1"]);
+        assert_eq!(child.color.as_ref().unwrap().value, "#E4572E");
+        assert!(!t
+            .leaves()
+            .iter()
+            .any(|l| l.id == "acme/website/code-review"));
+
+        // A status leaf loses its kind as a folder; an empty file changes nothing.
+        let compact = "parent: break\nfavorites:\n  Lunch:\n";
+        let (t, e) = tree(&[("10.yaml", CLIENTS), ("20.yaml", compact)]);
+        assert!(e.is_empty(), "{e:?}");
+        assert!(!t.find("break").unwrap().is_leaf());
+        assert_eq!(t.find("break").unwrap().kind, None);
+        assert!(t.find("break/lunch").unwrap().is_leaf());
+        let empty = "parent: break\nfavorites: []\n";
+        let (t, e) = tree(&[("10.yaml", CLIENTS), ("20.yaml", empty)]);
+        assert!(e.is_empty(), "{e:?}");
         assert!(t.find("break").unwrap().is_leaf());
     }
 

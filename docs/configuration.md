@@ -198,13 +198,19 @@ emoji directly (`_icon: "🎯"`).
 
 - Order: folders in the order of `favorites.dirs`, files by file name, entries
   in written order. Numeric prefixes (`10-`, `50-`) control the order.
-- `parent` (full ID of a folder) attaches a file's favorites below a folder
-  defined in a file that loads **earlier**; they are appended after the
-  folder's existing children. Both notations support `parent` and `generated`.
+- `parent` (full ID of a folder or leaf) attaches a file's favorites below a
+  node defined in a file that loads **earlier**; they are appended after the
+  node's existing children. Both notations support `parent` and `generated`.
+- If `parent` is a **leaf**, it becomes a folder as soon as the file adds at
+  least one favorite to it (its `kind` no longer applies, and it can no longer
+  be started). This lets you define the rough structure by hand and let a
+  generated file fill in the final leaves, e.g. `10-clients.yaml` defines
+  `ACME › Tickets` as a leaf and `50-jira.yaml` (`parent: acme/tickets`) adds
+  the tickets below it. While the generated file is missing or empty, the leaf
+  stays startable.
 - A file is **rejected as a whole** if it defines a full ID that already
   exists (the error names both files; the earlier definition stays), if its
-  `parent` doesn't exist or is a leaf (a leaf never silently becomes a folder),
-  or if it is invalid. Other files keep working.
+  `parent` doesn't exist, or if it is invalid. Other files keep working.
 
 ### Tips for generators
 

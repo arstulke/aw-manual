@@ -424,15 +424,15 @@ Fields: `id` (required), `title` (required), `color`, `icon`, `kind`, `children`
 - `aw-manual list --json` outputs the resolved values (after inheritance) and marks each value as `own` or `inherited`.
 
 #### Attaching to an existing folder
-A file can set `parent` (full ID of a folder) to hang its favorites under a folder defined in another file. This lets a generator add tasks below a hand-written client without rewriting it. `parent` works with both notations; `generated: true` likewise.
+A file can set `parent` (full ID of a folder or leaf) to hang its favorites under a folder defined in another file. This lets a generator add tasks below a hand-written client without rewriting it. `parent` works with both notations; `generated: true` likewise.
 
 #### Merge rules
 - Files with extension `.yaml` or `.yml` are loaded; hidden files (`.*`) and temp files (`*~`, `*.tmp`) are ignored. Subfolders are not read.
 - **Order:** directories in the order of `favorites.dirs`, files within a directory by file name (lexical), favorites within a file in their written order. Numeric prefixes like `10-`, `50-` control the order. The order stays fixed and manual as required in 4.2.
 - With `parent`, the file's favorites are appended after the existing children of that folder, again in file-name order.
 - **Duplicate full IDs** across files are an error: the later file is rejected as a whole, with a clear message naming both files. The earlier definition stays active.
-- A `parent` that doesn't exist, or points to a leaf, rejects that file.
-- A file that would turn an existing leaf into a folder (by adding children via `parent`) is rejected, so startable IDs never change silently.
+- A `parent` that doesn't exist rejects that file.
+- A `parent` that points to a leaf turns that leaf into a folder once the file adds children to it (e.g. a hand-written rough structure whose final leaves come from a generated file). The former leaf can no longer be started; its `kind` no longer applies.
 - **Errors are isolated per file:** an invalid file is skipped (or its last valid version stays active); all other files keep working.
 
 #### Tips for generators (documented)

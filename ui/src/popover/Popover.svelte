@@ -186,6 +186,15 @@
     }
   }
 
+  async function openSettings() {
+    clearTimers();
+    try {
+      await api.openSettings();
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
+
   function confirmScroll() {
     const action = drill.confirm();
     navVersion++;
@@ -335,7 +344,7 @@
     }
     if (ctrl && e.key === ",") {
       e.preventDefault();
-      api.openSettings();
+      openSettings();
       return;
     }
     if (e.key === "F5") {
@@ -551,9 +560,13 @@
           </div>
         </div>
         <button onclick={stopRunning} disabled={busy} title="Stop (Ctrl+S)">■ Stop</button>
+        <button class="settings" onclick={openSettings} title="Settings (Ctrl+,)" aria-label="Settings">⚙</button>
       </div>
     {:else}
-      <div class="running idle muted">No activity running</div>
+      <div class="running idle">
+        <span class="what muted">No activity running</span>
+        <button class="settings" onclick={openSettings} title="Settings (Ctrl+,)" aria-label="Settings">⚙</button>
+      </div>
     {/if}
     {#if snap && snap.status.server.online === false}
       <div class="offline">aw-server unreachable – {snap.status.server.pending} entries pending</div>
@@ -669,8 +682,13 @@
     gap: 10px;
     min-height: 36px;
   }
-  .running.idle {
-    justify-content: center;
+  .running.idle .what {
+    text-align: center;
+  }
+  .settings {
+    flex: none;
+    padding-left: 8px;
+    padding-right: 8px;
   }
   .what {
     flex: 1;

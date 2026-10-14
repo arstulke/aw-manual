@@ -29,8 +29,8 @@ notification "Last activity: … (ended 09:42)" offers to resume it.
 
 Open it with the popover hotkey (default **Ctrl+Alt+Space**), a click on the
 tray icon, or `aw-manual popover`. The window is kept alive in the background,
-so it appears immediately. It shows the running activity with its duration and
-a Stop button.
+so it appears immediately. It shows the running activity with its duration, a
+Stop button, and a ⚙ button that opens the settings window (also **Ctrl+,**).
 
 ### Scroll mode (hotkey + scroll wheel)
 

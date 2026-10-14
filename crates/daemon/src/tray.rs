@@ -2,12 +2,14 @@
 
 use std::sync::{Arc, Mutex};
 
+use aw_manual_core::config::TrayConfig;
 use aw_manual_core::display;
+use aw_manual_core::engine::RunningInfo;
 use aw_manual_core::engine::Status;
 use aw_manual_core::favorites::Favorite;
-use aw_manual_core::format::PATH_SEPARATOR;
+use aw_manual_core::format::{format_clock, format_elapsed, PATH_SEPARATOR};
 use aw_manual_core::model::Source;
-use chrono::Utc;
+use chrono::{DateTime, Local, Utc};
 use serde_json::json;
 use tauri::menu::{IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -25,6 +27,10 @@ struct Cache {
     icon_key: Mutex<Option<(IconState, bool)>>,
     text: Mutex<Option<Option<String>>>,
     tooltip: Mutex<Option<String>>,
+    /// The menu line with the elapsed time of the running activity, updated
+    /// in place (the tray text next to the icon may be clipped).
+    elapsed_item: Mutex<Option<MenuItem<Wry>>>,
+    elapsed_text: Mutex<Option<String>>,
 }
 
 fn status(svc: &Svc) -> Status {
@@ -147,7 +153,20 @@ fn menu_key(st: &Status, svc: &Svc) -> String {
     )
 }
 
-fn build_menu(app: &AppHandle, svc: &Svc, st: &Status) -> tauri::Result<Menu<Wry>> {
+/// "Running for 1h 23m (since 09:30)".
+fn elapsed_line(cfg: &TrayConfig, r: &RunningInfo, now: DateTime<Utc>) -> String {
+    format!(
+        "Running for {} (since {})",
+        format_elapsed((now - r.start).num_seconds(), cfg.elapsed_format),
+        format_clock(&r.start.with_timezone(&Local), cfg.time_format)
+    )
+}
+
+fn build_menu(
+    app: &AppHandle,
+    svc: &Svc,
+    st: &Status,
+) -> tauri::Result<(Menu<Wry>, Option<MenuItem<Wry>>)> {
     let menu = Menu::new(app)?;
     let header = match &st.running {
         Some(r) => format!("● {}", r.path.join(PATH_SEPARATOR)),
@@ -160,6 +179,20 @@ fn build_menu(app: &AppHandle, svc: &Svc, st: &Status) -> tauri::Result<Menu<Wry
         false,
         None::<&str>,
     )?)?;
+    let elapsed_item = match &st.running {
+        Some(r) => {
+            let item = MenuItem::with_id(
+                app,
+                "info-elapsed",
+                elapsed_line(&svc.config().tray, r, Utc::now()),
+                false,
+                None::<&str>,
+            )?;
+            menu.append(&item)?;
+            Some(item)
+        }
+        None => None,
+    };
     if st.server.online == Some(false) || st.server.pending > 0 {
         let text = if st.server.online == Some(false) {
             format!("Offline – {} entries pending", st.server.pending)
@@ -241,7 +274,7 @@ fn build_menu(app: &AppHandle, svc: &Svc, st: &Status) -> tauri::Result<Menu<Wry
         true,
         None::<&str>,
     )?)?;
-    Ok(menu)
+    Ok((menu, elapsed_item))
 }
 
 /// Updates icon, menu, text and tooltip after a change.
@@ -273,11 +306,13 @@ pub fn update(app: &AppHandle, svc: &Arc<Svc>) {
     let mk = menu_key(&st, svc);
     if *cache.menu_key.lock().unwrap() != mk {
         match build_menu(app, svc, &st) {
-            Ok(menu) => {
+            Ok((menu, elapsed_item)) => {
                 if let Err(e) = tray.set_menu(Some(menu)) {
                     tracing::warn!("cannot set the tray menu: {e}");
                 }
                 *cache.menu_key.lock().unwrap() = mk;
+                *cache.elapsed_text.lock().unwrap() = None;
+                *cache.elapsed_item.lock().unwrap() = elapsed_item;
             }
             Err(e) => tracing::warn!("cannot build the tray menu: {e}"),
         }
@@ -314,6 +349,14 @@ pub fn update_text(app: &AppHandle, svc: &Arc<Svc>) {
         // Text next to the icon: macOS menu bar, Linux AppIndicator label; not supported on Windows.
         let _ = tray.set_title(text.as_deref());
         *cached_text = Some(text);
+    }
+    if let (Some(item), Some(r)) = (cache.elapsed_item.lock().unwrap().as_ref(), &st.running) {
+        let line = elapsed_line(&cfg.tray, r, now);
+        let mut cached = cache.elapsed_text.lock().unwrap();
+        if cached.as_ref() != Some(&line) {
+            let _ = item.set_text(&line);
+            *cached = Some(line);
+        }
     }
     let mut cached_tip = cache.tooltip.lock().unwrap();
     if cached_tip.as_ref() != Some(&tooltip) {

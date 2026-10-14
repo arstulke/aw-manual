@@ -122,7 +122,8 @@ activity restarts at the end of the entry.
   `tray.color_icon`), offline or rejected entries (orange badge).
 - Left click opens the popover (macOS, Windows). On Linux, use "Open popover"
   in the menu (AppIndicator icons only have menus).
-- Menu: running activity, offline/pending state, Open popover, Stop, Resume
+- Menu: running activity with its elapsed time ("Running for 1h 23m (since
+  09:30)", also when the text next to the icon is clipped), offline/pending state, Open popover, Stop, Resume
   *last activity* (with its full path, since the same title can appear in
   several folders), Favorites (nested, in configured order), Settings…, Quit.
 - Text next to the icon (`tray.display`): `icon` (none), `elapsed` (`1h 23m`),

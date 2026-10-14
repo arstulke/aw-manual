@@ -22,7 +22,7 @@ central aw-server. aw-manual never modifies other buckets.
   "duration": 5400,
   "data": {
     "id": "acme/website/development",
-    "title": "Development",
+    "title": "ACME › Website › Development",
     "path": ["ACME", "Website", "Development"],
     "kind": "activity",
     "note": "Navigation refactoring",
@@ -36,7 +36,8 @@ central aw-server. aw-manual never modifies other buckets.
 | Field | Values |
 |---|---|
 | `id` | full favorite ID (or the ad-hoc ID) |
-| `title`, `path` | title and titles from the top level down |
+| `title` | full path, joined with ` › ` (`ACME › Website › Development`), so the ActivityWatch timeline shows where an activity belongs |
+| `path` | titles from the top level down |
 | `kind` | `activity` or `status` |
 | `note` | free text; omitted when empty |
 | `source` | `popover`, `popover-scroll`, `tray`, `cli`, `openaction`, `hotkey` |

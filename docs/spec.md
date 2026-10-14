@@ -98,7 +98,7 @@ Example event:
   "duration": 5400,
   "data": {
     "id": "acme/website/dev",
-    "title": "Development",
+    "title": "ACME › Website › Development",
     "path": ["ACME", "Website", "Development"],
     "kind": "activity",
     "note": "Navigation refactoring",

@@ -4,6 +4,7 @@ use chrono::{DateTime, SubsecRound, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::favorites::{Favorite, Kind};
+use crate::format::PATH_SEPARATOR;
 
 /// Where a command came from (`data.source` in events).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -86,6 +87,10 @@ impl Activity {
 }
 
 /// The `data` object of an ActivityWatch event.
+///
+/// `title` is the full path ("ACME › Website › Development"), so viewers that
+/// only show the title (e.g. the ActivityWatch timeline) show where the
+/// activity belongs; `path` keeps the individual titles.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventData {
     pub id: String,
@@ -111,7 +116,7 @@ impl EventData {
     ) -> Self {
         EventData {
             id: activity.id.clone(),
-            title: activity.title.clone(),
+            title: event_title(activity),
             path: activity.path.clone(),
             kind: activity.kind,
             note: note.map(str::to_string),
@@ -124,6 +129,15 @@ impl EventData {
 
     pub fn to_json(&self) -> serde_json::Value {
         serde_json::to_value(self).expect("event data serializes")
+    }
+}
+
+/// The title written into events: the full path, or the title if the path is empty.
+pub fn event_title(activity: &Activity) -> String {
+    if activity.path.is_empty() {
+        activity.title.clone()
+    } else {
+        activity.path.join(PATH_SEPARATOR)
     }
 }
 
@@ -168,4 +182,30 @@ pub struct Stopped {
 /// through aw-server unchanged.
 pub fn trunc_ms(t: DateTime<Utc>) -> DateTime<Utc> {
     t.trunc_subsecs(3)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn activity(path: &[&str]) -> Activity {
+        Activity {
+            id: "acme/website/dev".into(),
+            title: "Development".into(),
+            path: path.iter().map(|s| s.to_string()).collect(),
+            kind: Kind::Activity,
+            origin: Origin::Config,
+            color: None,
+            icon: None,
+        }
+    }
+
+    #[test]
+    fn event_title_is_the_full_path() {
+        let a = activity(&["ACME", "Website", "Development"]);
+        let d = EventData::new(&a, None, Source::Cli, None, Entry::Timer);
+        assert_eq!(d.title, "ACME › Website › Development");
+        assert_eq!(d.path, vec!["ACME", "Website", "Development"]);
+        assert_eq!(event_title(&activity(&[])), "Development");
+    }
 }

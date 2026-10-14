@@ -123,7 +123,8 @@ activity restarts at the end of the entry.
 - Left click opens the popover (macOS, Windows). On Linux, use "Open popover"
   in the menu (AppIndicator icons only have menus).
 - Menu: running activity, offline/pending state, Open popover, Stop, Resume
-  *last activity*, Favorites (nested, in configured order), Settings…, Quit.
+  *last activity* (with its full path, since the same title can appear in
+  several folders), Favorites (nested, in configured order), Settings…, Quit.
 - Text next to the icon (`tray.display`): `icon` (none), `elapsed` (`1h 23m`),
   `since` (`since 09:30`), `title`, or `template` with `{title}`, `{path}`,
   `{elapsed}`, `{since}`, `{note}` (default `{title} · {elapsed}`).

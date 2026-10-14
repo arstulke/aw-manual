@@ -190,7 +190,7 @@ fn build_menu(app: &AppHandle, svc: &Svc, st: &Status) -> tauri::Result<Menu<Wry
         None::<&str>,
     )?)?;
     let resume_label = match &st.last_stopped {
-        Some(s) => format!("Resume {}", s.title),
+        Some(s) => format!("Resume {}", s.path.join(PATH_SEPARATOR)),
         None => "Resume".to_string(),
     };
     let can_resume = st.last_stopped.as_ref().is_some_and(|s| {

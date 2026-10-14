@@ -466,10 +466,25 @@
     }
   }
 
+  /** Wheel in keyboard mode: moves the highlight through the leaves (search results or tree). */
+  function wheelKeyboard(dir: 1 | -1) {
+    for (let i = kbIndex + dir; i >= 0 && i < kbList.length; i += dir) {
+      if (kbList[i].fav.type === "leaf") {
+        kbIndex = i;
+        return;
+      }
+    }
+  }
+
   function onWheel(e: WheelEvent) {
-    if (mode !== "scroll") return;
     e.preventDefault();
+    if (busy) return;
     const t = performance.now();
+    if (mode === "keyboard") {
+      const step = wheel.vertical(e.deltaY, e.deltaMode, t);
+      if (step !== 0) wheelKeyboard(step > 0 ? 1 : -1);
+      return;
+    }
     if (snap?.scroll.horizontal && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
       const h = wheel.horizontal(e.deltaX, e.deltaMode, t);
       if (h < 0) nav("back");
@@ -674,7 +689,7 @@
       {#if mode === "scroll"}
         scroll to select · hotkey/<kbd>Enter</kbd> confirm · type to search · <kbd>Tab</kbd> tree
       {:else}
-        <kbd>↑↓</kbd> select · <kbd>Enter</kbd> {retro ? "log" : "start"} · <kbd>Ctrl</kbd>+<kbd>N</kbd> note · <kbd>Ctrl</kbd>+<kbd>R</kbd> retroactive · <kbd>Ctrl</kbd>+<kbd>S</kbd> stop · <kbd>Esc</kbd> close
+        <kbd>↑↓</kbd>/scroll select · <kbd>Enter</kbd> {retro ? "log" : "start"} · <kbd>Ctrl</kbd>+<kbd>N</kbd> note · <kbd>Ctrl</kbd>+<kbd>R</kbd> retroactive · <kbd>Ctrl</kbd>+<kbd>S</kbd> stop · <kbd>Esc</kbd> close
       {/if}
     </div>
   </footer>

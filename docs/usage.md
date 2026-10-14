@@ -87,6 +87,7 @@ the favorites tree (all folders expanded, unless `layout: levels`).
 |---|---|
 | typing | fuzzy search over all favorites and their path (`acm web dev`); results are leaves only |
 | ↑ / ↓, PgUp / PgDn | move the highlight |
+| scroll wheel | move the highlight through the leaves (search results or tree); confirm with Enter, a click, or the popover hotkey |
 | Enter | start the highlighted favorite (or open/close a folder in the tree) |
 | → / ← | expand / collapse folders (tree, empty search) |
 | Esc | clear the search, then close |

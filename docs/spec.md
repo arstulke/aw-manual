@@ -149,17 +149,18 @@ The popover must be fully operable without keyboard, mouse click or touch. **The
 
 **Scope:** Scroll mode covers **starting and stopping** activities only. Retroactive entries and notes are deliberately not available in scroll mode; they remain in keyboard mode.
 
-- **Open:** Hotkey. Focus is immediately on the favorites list (current hierarchy level).
-- **Select:** Scrolling moves the highlight item by item through the list, in the fixed configured order.
+- **Open:** Hotkey. Focus is immediately on the favorites list.
+- **Layout** (`popover.scroll.layout`): `tree` (default) shows the whole tree expanded, with folders as headings; `levels` shows one hierarchy level at a time.
+- **Select:** Scrolling moves the highlight item by item through the list, in the fixed configured order. In the `tree` layout only leaves (and the navigation items) can be highlighted.
 - **Confirm**, two ways (can be enabled individually or combined):
   - Press the **hotkey** again (default: on)
   - **Dwell time:** the highlight stays on an item for a configurable time (default 2 s) (default: off). A progress bar on the highlighted item shows the countdown; any scroll resets it. Dwell only starts after the first scroll movement, so merely opening the popover triggers nothing.
 - **Effect of confirming:**
-  - On a folder (e.g. client): opens the sub-level
+  - On a folder (e.g. client, `levels` layout): opens the sub-level
   - On a leaf (e.g. task): starts the activity and closes the popover
   - On the already running activity: closes the popover without change (no restart)
 - **Navigation items** inside the list, also reachable by scrolling:
-  - "‹ Back" as the first item of every sub-level
+  - "‹ Back" as the first item of every sub-level (`levels` layout)
   - "■ Stop" as the first item of the top level while an activity is running
   - "✕ Cancel" as the last item
 - **Abort without input:** The popover closes after a configurable timeout (default 10 s) without changes. The timeout must be longer than the dwell time.
@@ -347,6 +348,7 @@ notifications:
 
 popover:
   scroll:
+    layout: tree                    # tree | levels
     confirm_with_hotkey: true
     dwell_confirm: false            # confirm by dwell time
     dwell_time: 2s

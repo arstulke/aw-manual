@@ -133,6 +133,11 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "layout": {
+              "enum": ["tree", "levels"],
+              "default": "tree",
+              "description": "tree: all folders expanded, scrolling steps through the leaves only; levels: one folder level at a time."
+            },
             "confirm_with_hotkey": { "type": "boolean", "default": true },
             "dwell_confirm": { "type": "boolean", "default": false },
             "dwell_time": { "$ref": "#/$defs/duration", "default": "2s" },

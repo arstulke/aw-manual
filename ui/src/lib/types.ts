@@ -63,6 +63,7 @@ export interface Status {
 }
 
 export interface ScrollConfig {
+  layout: "tree" | "levels";
   confirm_with_hotkey: boolean;
   dwell_confirm: boolean;
   dwell_time: string;

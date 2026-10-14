@@ -89,6 +89,7 @@ notifications:
 
 popover:
   scroll:
+    layout: tree                    # tree (all folders expanded, scroll through leaves) | levels (one folder at a time)
     confirm_with_hotkey: true
     dwell_confirm: false            # confirm by dwell time
     dwell_time: 2s

@@ -94,6 +94,7 @@
       "notifications.work_hours.days": [...c.notifications.work_hours.days],
       "notifications.work_hours.from": c.notifications.work_hours.from,
       "notifications.work_hours.to": c.notifications.work_hours.to,
+      "popover.scroll.layout": s.layout,
       "popover.scroll.confirm_with_hotkey": s.confirm_with_hotkey,
       "popover.scroll.dwell_confirm": s.dwell_confirm,
       "popover.scroll.dwell_time": s.dwell_time,
@@ -408,6 +409,12 @@
         <h2>Popover – scroll mode</h2>
         <section>
           <p class="hint">Operate the popover with the hotkey and the scroll wheel only: scroll to select, confirm with the hotkey or by keeping the highlight on an item.</p>
+          <label>Layout
+            <select bind:value={form["popover.scroll.layout"]}>
+              <option value="tree">All folders expanded, scroll through the leaves</option>
+              <option value="levels">One folder level at a time</option>
+            </select>
+          </label>
           <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.confirm_with_hotkey"]} /> Confirm by pressing the hotkey again</label>
           <div class="row">
             <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.dwell_confirm"]} /> Confirm by dwell time</label>

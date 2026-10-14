@@ -100,8 +100,19 @@ pub enum StartAt {
     First,
 }
 
+/// How scroll mode shows the favorites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScrollLayout {
+    /// The whole tree, expanded; scrolling steps through the leaves only.
+    Tree,
+    /// One folder level at a time (confirm opens a folder, "‹ Back" leaves it).
+    Levels,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ScrollConfig {
+    pub layout: ScrollLayout,
     pub confirm_with_hotkey: bool,
     pub dwell_confirm: bool,
     #[serde(serialize_with = "ser_duration")]
@@ -237,6 +248,7 @@ impl Default for Config {
             },
             popover: PopoverConfig {
                 scroll: ScrollConfig {
+                    layout: ScrollLayout::Tree,
                     confirm_with_hotkey: true,
                     dwell_confirm: false,
                     dwell_time: Duration::from_secs(2),
@@ -299,6 +311,7 @@ notifications:
 
 popover:
   scroll:
+    layout: tree                    # tree (all folders expanded) | levels (one folder at a time)
     confirm_with_hotkey: true
     dwell_confirm: false            # confirm by dwell time
     dwell_time: 2s
@@ -883,6 +896,7 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
                 sc_node,
                 "popover.scroll",
                 &[
+                    "layout",
                     "confirm_with_hotkey",
                     "dwell_confirm",
                     "dwell_time",
@@ -896,6 +910,16 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
                 &mut errs,
             );
             let sc = &mut cfg.popover.scroll;
+            read_enum(
+                entry(s, "layout"),
+                "popover.scroll.layout",
+                &[
+                    ("tree", ScrollLayout::Tree),
+                    ("levels", ScrollLayout::Levels),
+                ],
+                &mut sc.layout,
+                &mut errs,
+            );
             read_bool(
                 entry(s, "confirm_with_hotkey"),
                 "popover.scroll.confirm_with_hotkey",
@@ -1137,6 +1161,7 @@ notifications:
     to: "18:00"
 popover:
   scroll:
+    layout: levels
     confirm_with_hotkey: true
     dwell_confirm: false
     dwell_time: 2s
@@ -1152,6 +1177,7 @@ openaction:
         assert_eq!(c.server.heartbeat_interval, Duration::from_secs(60));
         assert_eq!(c.pulsetime(), Duration::from_secs(90));
         assert_eq!(c.bucket_id("box"), "aw-manual_box");
+        assert_eq!(c.popover.scroll.layout, ScrollLayout::Levels);
     }
 
     #[test]

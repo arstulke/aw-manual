@@ -38,18 +38,24 @@ The popover opens in scroll mode. It can be used without keyboard, click or
 touch; the reference device is a regular mouse, with the hotkey on a side
 button (e.g. `hotkeys.popover: Mouse4`).
 
-- **Scroll** to move the highlight item by item through the current level, in
-  the configured order. The highlighted item is shown with its full path at
+- The list shows the **whole favorites tree, expanded** (`layout: tree`, the
+  default): folders are headings, and **scrolling** moves the highlight through
+  the leaves only, in the configured order, so every favorite is reachable
+  without opening folders. With `layout: levels`, the list shows one folder
+  level at a time instead. The highlighted item is shown with its full path at
   the bottom.
 - **Confirm** by pressing the hotkey again (`popover.scroll.confirm_with_hotkey`,
   on by default) and/or by **dwell time**: keep the highlight on an item for
   `dwell_time` (default 2 s, `dwell_confirm: true`). A progress bar shows the
   countdown; any scroll restarts it. Dwell only starts after the first scroll
   movement, so opening the popover alone never triggers anything.
-- Confirming a **folder** opens it; a **leaf** starts the activity and closes the
-  popover; the **running activity** just closes the popover.
-- Navigation items: "‹ Back" (first item of every sub-level), "■ Stop" (first
-  item of the top level while an activity runs), "✕ Cancel" (last item).
+- Confirming a **leaf** starts the activity and closes the popover; the
+  **running activity** just closes the popover. With `layout: levels`,
+  confirming a **folder** opens it.
+- Navigation items: "■ Stop" (first item while an activity runs), "✕ Cancel"
+  (last item), and with `layout: levels` "‹ Back" (first item of every
+  sub-level). In the tree layout, Back jumps to the first leaf of the current
+  folder, then to the previous folder.
 - Without input, the popover closes after `timeout` (default 10 s; it must be
   longer than the dwell time).
 - The highlight starts on the running activity (`start_at: running`) or on the
@@ -75,7 +81,7 @@ need the keyboard.
 ### Keyboard mode
 
 Typing any letter switches to keyboard mode and searches; **Tab** switches to
-the favorites tree.
+the favorites tree (all folders expanded, unless `layout: levels`).
 
 | Key | Action |
 |---|---|

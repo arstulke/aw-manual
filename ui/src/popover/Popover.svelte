@@ -3,7 +3,7 @@
   import { api, errorText, onClosed, onNav, onOpened, onStateChanged } from "../lib/api";
   import { formatClock, formatElapsed, iconGlyph, parseDuration, PATH_SEPARATOR } from "../lib/format";
   import { search } from "../lib/fuzzy";
-  import { DrillDown, type NavItem } from "../lib/nav";
+  import { DrillDown, ExpandedTree, type NavItem, type ScrollNav } from "../lib/nav";
   import { ancestorIds, parentId, visibleRows, type Row } from "../lib/tree";
   import type { Favorite, NavCommand, Snapshot } from "../lib/types";
   import { WheelSteps } from "../lib/wheel";
@@ -27,7 +27,7 @@
   let dwellArmed = $state(false);
   let dwellKey = $state(0);
 
-  let drill = new DrillDown([], null, false);
+  let drill: ScrollNav = new DrillDown([], null, false);
   const wheel = new WheelSteps();
   let dwellTimer: ReturnType<typeof setTimeout> | undefined;
   let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
@@ -114,7 +114,8 @@
     kbIndex = 0;
     await refresh();
     if (!snap) return;
-    drill = new DrillDown(snap.favorites, snap.status.running?.id ?? null, snap.scroll.wrap_around);
+    const Nav = snap.scroll.layout === "levels" ? DrillDown : ExpandedTree;
+    drill = new Nav(snap.favorites, snap.status.running?.id ?? null, snap.scroll.wrap_around);
     drill.startAt(snap.scroll.start_at);
     navVersion++;
     restartTimeout();
@@ -273,6 +274,11 @@
     else startFavorite(row.fav);
   }
 
+  /** IDs of all folders (the tree layout shows everything expanded). */
+  function allFolderIds(nodes: Favorite[]): string[] {
+    return nodes.flatMap((f) => (f.type === "folder" ? [f.id, ...allFolderIds(f.children ?? [])] : []));
+  }
+
   function toggle(id: string) {
     expanded = expanded.includes(id) ? expanded.filter((x) => x !== id) : [...expanded, id];
   }
@@ -304,8 +310,9 @@
       // Continue where scroll mode was: open its folders and highlight the item.
       const item = drill.current();
       const id = item.kind === "folder" || item.kind === "leaf" ? item.fav.id : running?.id;
+      if (snap?.scroll.layout !== "levels") expanded = allFolderIds(snap?.favorites ?? []);
       if (id) {
-        expanded = ancestorIds(id);
+        if (snap?.scroll.layout === "levels") expanded = ancestorIds(id);
         await tick();
         const i = rows.findIndex((r) => r.fav.id === id);
         kbIndex = i === -1 ? 0 : i;
@@ -475,6 +482,7 @@
   }
 
   function clickNav(i: number) {
+    if (navItems[i]?.kind === "heading") return;
     drill.index = i;
     navVersion++;
     clearTimeout(dwellTimer);
@@ -594,15 +602,26 @@
 
   <ul class="list" bind:this={listEl} tabindex="-1" role="listbox" aria-label="Favorites">
     {#if mode === "scroll" && !query}
-      {#each navItems as item, i (i + ":" + (item.kind === "folder" || item.kind === "leaf" ? item.fav.id : item.kind))}
+      {#each navItems as item, i (i + ":" + (item.kind === "folder" || item.kind === "leaf" || item.kind === "heading" ? item.fav.id : item.kind))}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <li role="option" aria-selected={i === navIndex} class:hl={i === navIndex} class={item.kind} onclick={() => clickNav(i)}>
+        <li
+          role="option"
+          aria-selected={i === navIndex}
+          class:hl={i === navIndex}
+          class={item.kind}
+          style={item.kind !== "back" && item.kind !== "stop" && item.kind !== "cancel" && item.depth ? `padding-left: ${10 + item.depth * 18}px` : undefined}
+          onclick={() => clickNav(i)}
+        >
           {#if item.kind === "back"}
             <span class="label">‹ Back</span>
           {:else if item.kind === "stop"}
             <span class="label">■ Stop</span>
           {:else if item.kind === "cancel"}
             <span class="label">✕ Cancel</span>
+          {:else if item.kind === "heading"}
+            <span class="dot small" style={`background: ${dot(item.fav)}`}></span>
+            <span class="icon">{iconGlyph(item.fav.icon?.value)}</span>
+            <span class="label">{item.fav.title}</span>
           {:else}
             <span class="dot small" style={`background: ${dot(item.fav)}`}></span>
             <span class="icon">{iconGlyph(item.fav.icon?.value)}</span>
@@ -775,6 +794,16 @@
   }
   .list li.empty {
     cursor: default;
+  }
+  .list li.heading {
+    cursor: default;
+    color: var(--fg-soft);
+    font-size: 12px;
+    padding-top: 5px;
+    padding-bottom: 3px;
+  }
+  .list li.heading:hover {
+    background: none;
   }
   .label {
     flex: 1;

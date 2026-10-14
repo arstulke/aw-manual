@@ -127,6 +127,21 @@ A retroactive entry takes precedence: overlapping aw-manual entries are trimmed
 or split without asking. If it overlaps the running activity, the running
 activity restarts at the end of the entry.
 
+### After returning from AFK
+
+When you come back after being away for at least `popover.afk_prompt`
+(default 15 minutes), the popover opens and asks "What were you doing for the
+last 42 minutes?", for example for on-site meetings, helping colleagues, or
+breaks. The away time is prefilled as a retroactive range; pick a favorite
+and press Enter to log it, or Esc to ignore it. Nothing is recorded unless
+you pick something. The question is skipped while a status activity (break,
+meeting, …) has been running since before you left.
+
+The AFK periods come from
+[aw-watcher-afk](https://docs.activitywatch.net/en/latest/watchers.html)
+(bucket `aw-watcher-afk_<hostname>`, `popover.afk_bucket`), which is part of
+the standard ActivityWatch installation. `afk_prompt: false` disables it.
+
 ## Tray / menu bar
 
 - Icon states: idle (ring), active (filled, tinted in the favorite's color if

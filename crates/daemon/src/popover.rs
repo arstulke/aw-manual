@@ -28,7 +28,7 @@ struct State {
 /// Payload of the `popover:opened` event.
 #[derive(Clone, Default, Serialize)]
 pub struct Opened {
-    /// What opened the popover: "hotkey", "tray", "cli", "launch", "note".
+    /// What opened the popover: "hotkey", "tray", "cli", "launch", "note", "afk".
     pub trigger: String,
     /// Ask for a note for this favorite, then start it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,6 +36,9 @@ pub struct Opened {
     /// Open the note field for the running activity.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub note: bool,
+    /// Ask what the user did during this AFK period (retroactive entry).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub afk: Option<aw_manual_core::afk::AfkPeriod>,
 }
 
 impl Opened {

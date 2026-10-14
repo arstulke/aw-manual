@@ -3,6 +3,8 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use aw_manual_core::afk::{self, AfkState};
+use aw_manual_core::aw::AwClient;
 use aw_manual_core::engine::ErrorCode;
 use aw_manual_core::ipc::{self, Endpoint, IpcError, NavCommand};
 use aw_manual_core::model::Source;
@@ -137,6 +139,7 @@ pub fn run(endpoint: Endpoint, options: Options) {
             spawn_change_listener(handle.clone(), svc.clone());
             spawn_tray_ticker(handle.clone(), svc.clone());
             spawn_reminders(handle.clone(), svc.clone());
+            spawn_afk_watcher(handle.clone(), svc.clone());
 
             // Serve IPC only once the windows exist.
             tokio::spawn(ipc::serve(listener, svc.clone()));
@@ -228,6 +231,66 @@ fn spawn_reminders(app: AppHandle, svc: Arc<Svc>) {
                     let _ = svc.lock_engine().mark_long_running_notified();
                 }
                 notifications::notice(&app, &n);
+            }
+        }
+    });
+}
+
+/// Opens the popover after the return from an AFK period (aw-watcher-afk)
+/// and asks what the user was doing, prefilled as a retroactive entry.
+fn spawn_afk_watcher(app: AppHandle, svc: Arc<Svc>) {
+    tokio::spawn(async move {
+        let mut state = AfkState::default();
+        let mut client: Option<AwClient> = None;
+        let mut iv = tokio::time::interval(Duration::from_secs(15));
+        loop {
+            iv.tick().await;
+            let cfg = svc.config();
+            let Some(threshold) = cfg.popover.afk_prompt else {
+                continue;
+            };
+            if client.as_ref().map(|c| c.base_url())
+                != Some(cfg.server.url.trim().trim_end_matches('/'))
+            {
+                client = Some(AwClient::new(&cfg.server.url));
+            }
+            let bucket = cfg.afk_bucket_id(svc.hostname());
+            let events = match client
+                .as_ref()
+                .expect("set above")
+                .latest_events(&bucket, 5)
+                .await
+            {
+                Ok(e) => e,
+                Err(e) => {
+                    tracing::debug!("cannot read the AFK bucket \"{bucket}\": {e}");
+                    continue;
+                }
+            };
+            let period = {
+                let engine = svc.lock_engine();
+                afk::check(
+                    &events,
+                    threshold,
+                    engine.running(),
+                    chrono::Utc::now(),
+                    &mut state,
+                )
+            };
+            let Some(period) = period else { continue };
+            if popover::is_visible(&app) {
+                continue;
+            }
+            tracing::info!(
+                "back after {} minutes AFK, asking what happened",
+                period.minutes
+            );
+            let opened = popover::Opened {
+                afk: Some(period),
+                ..popover::Opened::new("afk")
+            };
+            if let Err(e) = popover::show_with(&app, opened) {
+                tracing::warn!("cannot open the popover: {e}");
             }
         }
     });

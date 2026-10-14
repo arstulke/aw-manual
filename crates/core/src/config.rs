@@ -130,6 +130,12 @@ pub struct ScrollConfig {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PopoverConfig {
     pub scroll: ScrollConfig,
+    /// Open the popover after returning from an AFK period at least this
+    /// long and ask what you were doing (`None` = disabled).
+    #[serde(serialize_with = "ser_opt_duration")]
+    pub afk_prompt: Option<Duration>,
+    /// aw-watcher-afk bucket; `{hostname}` is replaced by the local host name.
+    pub afk_bucket: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -259,6 +265,8 @@ impl Default for Config {
                     start_at: StartAt::Running,
                     horizontal: false,
                 },
+                afk_prompt: Some(Duration::from_secs(15 * 60)),
+                afk_bucket: "aw-watcher-afk_{hostname}".into(),
             },
             cli: CliConfig {
                 autostart_daemon: true,
@@ -320,6 +328,7 @@ popover:
     wrap_around: false
     open_at_cursor: true
     start_at: running               # running | first
+  afk_prompt: 15m                   # ask what you did while away (aw-watcher-afk); false to disable
 "##;
 
 /// Collects validation errors for one file.
@@ -890,7 +899,34 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
     }
 
     if let Some(p_node) = entry(top, "popover") {
-        let p = section(p_node, "popover", &["scroll"], &mut errs);
+        let p = section(
+            p_node,
+            "popover",
+            &["scroll", "afk_prompt", "afk_bucket"],
+            &mut errs,
+        );
+        read_opt_duration(
+            entry(p, "afk_prompt"),
+            "popover.afk_prompt",
+            &mut cfg.popover.afk_prompt,
+            &mut errs,
+        );
+        if let (Some(d), Some(n)) = (cfg.popover.afk_prompt, entry(p, "afk_prompt")) {
+            if d < Duration::from_secs(60) {
+                errs.push(n, "popover.afk_prompt must be at least 1m");
+            }
+        }
+        if let Some(n) = entry(p, "afk_bucket") {
+            match n.as_scalar().map(str::trim) {
+                Some(b) if !b.is_empty() && !b.contains('/') => {
+                    cfg.popover.afk_bucket = b.to_string()
+                }
+                _ => errs.push(
+                    n,
+                    "popover.afk_bucket must be a bucket ID such as aw-watcher-afk_{hostname}",
+                ),
+            }
+        }
         if let Some(sc_node) = entry(p, "scroll") {
             let s = section(
                 sc_node,
@@ -1054,6 +1090,11 @@ pub fn validate_server_url(url: &str) -> Result<(), String> {
 }
 
 impl Config {
+    /// The aw-watcher-afk bucket ID with `{hostname}` replaced.
+    pub fn afk_bucket_id(&self, hostname: &str) -> String {
+        self.popover.afk_bucket.replace("{hostname}", hostname)
+    }
+
     /// The bucket ID with `{hostname}` replaced.
     pub fn bucket_id(&self, hostname: &str) -> String {
         self.server.bucket_id.replace("{hostname}", hostname)
@@ -1178,6 +1219,18 @@ openaction:
         assert_eq!(c.pulsetime(), Duration::from_secs(90));
         assert_eq!(c.bucket_id("box"), "aw-manual_box");
         assert_eq!(c.popover.scroll.layout, ScrollLayout::Levels);
+        assert_eq!(c.afk_bucket_id("box"), "aw-watcher-afk_box");
+    }
+
+    #[test]
+    fn afk_prompt() {
+        let c = parse_config("popover:\n  afk_prompt: false\n  afk_bucket: my-afk\n").unwrap();
+        assert_eq!(c.popover.afk_prompt, None);
+        assert_eq!(c.afk_bucket_id("box"), "my-afk");
+        let c = parse_config("popover:\n  afk_prompt: 30m\n").unwrap();
+        assert_eq!(c.popover.afk_prompt, Some(Duration::from_secs(1800)));
+        assert!(parse_config("popover:\n  afk_prompt: 10s\n").is_err());
+        assert!(parse_config("popover:\n  afk_bucket: a/b\n").is_err());
     }
 
     #[test]

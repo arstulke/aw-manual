@@ -15,7 +15,7 @@
 
 ActivityWatch (AW) automatically records *what* happens on the computer (windows, AFK, browser …). What's missing is the human component: *what* the user is actually working on (client, project, task). aw-manual extends AW with **fast, manual tracking** through multiple input methods and writes the data into its own AW bucket.
 
-**Principle:** aw-manual only records. Interpretation, reconciliation with other watchers and analysis happen **downstream** via AW plugins, connectors or queries. aw-manual therefore never pauses, trims or corrects activities automatically (e.g. not based on AFK data).
+**Principle:** aw-manual only records. Interpretation, reconciliation with other watchers and analysis happen **downstream** via AW plugins, connectors or queries. aw-manual therefore never pauses, trims or corrects activities automatically (e.g. not based on AFK data). The only use of AFK data is a question: after the return from an AFK period, the popover asks what the user was doing and records only what the user picks.
 
 ### Non-Goals (MVP)
 - No built-in reports, analytics or invoicing

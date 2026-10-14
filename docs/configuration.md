@@ -99,6 +99,8 @@ popover:
     open_at_cursor: true
     start_at: running               # running | first
     horizontal: false               # left = back, right = confirm
+  afk_prompt: 15m                   # after returning from AFK, ask what you did; false to disable
+  afk_bucket: "aw-watcher-afk_{hostname}"   # bucket of aw-watcher-afk
 
 cli:
   autostart_daemon: true            # the CLI starts the daemon if needed

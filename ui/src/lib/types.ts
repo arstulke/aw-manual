@@ -15,6 +15,7 @@ export interface Favorite {
   kind?: Kind;
   color: Resolved | null;
   icon: Resolved | null;
+  ask_note: boolean;
   file: string;
   line: number;
   generated: boolean;

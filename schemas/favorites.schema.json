@@ -23,7 +23,7 @@
       "minLength": 1
     },
     "compactNode": {
-      "description": "Empty value = leaf. A list of titles = folder with leaves. A mapping = properties (_id, _color, _icon, _kind) and/or children (titles as keys).",
+      "description": "Empty value = leaf. A list of titles = folder with leaves. A mapping = properties (_id, _color, _icon, _kind, _ask_note) and/or children (titles as keys).",
       "oneOf": [
         { "type": "null" },
         {
@@ -40,14 +40,18 @@
         "_id": { "$ref": "#/$defs/id" },
         "_color": { "$ref": "#/$defs/color" },
         "_icon": { "type": "string", "minLength": 1 },
-        "_kind": { "$ref": "#/$defs/kind" }
+        "_kind": { "$ref": "#/$defs/kind" },
+        "_ask_note": {
+          "type": "boolean",
+          "description": "Ask for a note when the favorite is started from the popover, tray or a hotkey (inherited)."
+        }
       },
       "patternProperties": {
         "^_": { "description": "Unknown properties starting with _ are errors." },
         "^[^_]": { "$ref": "#/$defs/compactNode" }
       },
       "propertyNames": {
-        "anyOf": [{ "enum": ["_id", "_color", "_icon", "_kind"] }, { "pattern": "^[^_]" }]
+        "anyOf": [{ "enum": ["_id", "_color", "_icon", "_kind", "_ask_note"] }, { "pattern": "^[^_]" }]
       }
     },
     "explicitNode": {
@@ -60,6 +64,10 @@
         "color": { "$ref": "#/$defs/color" },
         "icon": { "type": "string", "minLength": 1 },
         "kind": { "$ref": "#/$defs/kind" },
+        "ask_note": {
+          "type": "boolean",
+          "description": "Ask for a note when the favorite is started from the popover, tray or a hotkey (inherited)."
+        },
         "children": {
           "oneOf": [{ "type": "array", "items": { "$ref": "#/$defs/explicitNode" } }, { "type": "null" }]
         }

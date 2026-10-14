@@ -79,19 +79,21 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
             .call("resume", json!({"source": "tray"}))
             .map(|_| ())
             .map_err(|e| e.message),
+        "note" => popover::show_with(
+            app,
+            popover::Opened {
+                note: true,
+                ..popover::Opened::new("note")
+            },
+        )
+        .map_err(|e| e.to_string()),
         "settings" => open_settings(app).map_err(|e| e.to_string()),
         "quit" => {
             app.exit(0);
             Ok(())
         }
         other => match other.strip_prefix("fav:") {
-            Some(fav) => svc
-                .call(
-                    "start",
-                    json!({"target": {"favorite": fav}, "source": Source::Tray}),
-                )
-                .map(|_| ())
-                .map_err(|e| e.message),
+            Some(fav) => popover::start_or_ask(app, fav, Source::Tray, "tray"),
             None => Ok(()),
         },
     };
@@ -108,11 +110,14 @@ fn favorites_menu(
     let mut items: Vec<Box<dyn IsMenuItem<Wry>>> = Vec::new();
     for n in nodes {
         if n.is_leaf() {
-            let label = if running == Some(n.id.as_str()) {
+            let mut label = if running == Some(n.id.as_str()) {
                 format!("● {}", n.title)
             } else {
                 n.title.clone()
             };
+            if n.ask_note {
+                label.push('…');
+            }
             items.push(Box::new(MenuItem::with_id(
                 app,
                 format!("fav:{}", n.id),
@@ -219,6 +224,13 @@ fn build_menu(
         app,
         "stop",
         "Stop",
+        st.running.is_some(),
+        None::<&str>,
+    )?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "note",
+        "Leave a note…",
         st.running.is_some(),
         None::<&str>,
     )?)?;

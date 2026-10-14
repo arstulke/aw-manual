@@ -146,7 +146,8 @@ favorites:
     _icon: coffee
 ```
 
-- Properties: `_id`, `_color`, `_icon`, `_kind`. Unknown `_` keys are errors.
+- Properties: `_id`, `_color`, `_icon`, `_kind`, `_ask_note`. Unknown `_`
+  keys are errors.
   Titles must not start with `_`.
 - A node is a **leaf** if its value is empty or contains only properties
   (`Development: {_icon: code}`); as soon as it has a child, it is a folder.
@@ -178,13 +179,33 @@ favorites:
 ```
 
 Fields: `id` (required), `title` (required), `color`, `icon`, `kind`,
-`children`. IDs may contain letters, digits, `.`, `_` and `-`. The resulting
+`ask_note`, `children`. IDs may contain letters, digits, `.`, `_` and `-`. The resulting
 full IDs here are `acme/website/web-123` and `acme/website/web-140`.
+
+### Asking for a note
+
+`_ask_note: true` (explicit notation: `ask_note: true`) makes a favorite ask
+for a note whenever it is started from the popover, the tray menu or a hotkey,
+e.g. a generic "Ticket work" favorite that needs the ticket number:
+
+```yaml
+favorites:
+  ACME:
+    Tickets:
+      _ask_note: true          # every leaf below asks for a note
+      Bug fixing:
+      Review:
+        _ask_note: false       # except this one
+```
+
+The popover then opens with the note field; Enter starts the favorite with the
+note (an empty note starts it without one), Esc cancels. The CLI never asks
+(use `--note`).
 
 ### Inheritance
 
-`color` and `icon` are inherited from the nearest ancestor that defines them;
-a child overrides them with its own value. `kind` is not inherited and only
+`color`, `icon` and `ask_note` are inherited from the nearest ancestor that
+defines them; a child overrides them with its own value. `kind` is not inherited and only
 allowed on leaves. With `parent`, favorites inherit from the referenced folder.
 `aw-manual list --json` shows the resolved values, marked `own` or `inherited`.
 

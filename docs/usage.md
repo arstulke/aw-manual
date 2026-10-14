@@ -89,6 +89,7 @@ the favorites tree (all folders expanded, unless `layout: levels`).
 | ↑ / ↓, PgUp / PgDn | move the highlight |
 | scroll wheel | move the highlight through the leaves (search results or tree); confirm with Enter, a click, or the popover hotkey |
 | Enter | start the highlighted favorite (or open/close a folder in the tree) |
+| Shift+Enter, right click | ask for a note, then start the favorite with it (right click also works in scroll mode) |
 | → / ← | expand / collapse folders (tree, empty search) |
 | Esc | clear the search, then close |
 | Ctrl+N | note field |
@@ -97,7 +98,10 @@ the favorites tree (all folders expanded, unless `layout: levels`).
 | Ctrl+, | settings |
 
 **Notes.** Enter a note before starting an activity, and it is stored with the
-entry. While an activity runs, Enter in the note field applies the note to it:
+entry. Shift+Enter or a right click on a favorite asks for a note first, and
+favorites with `_ask_note: true` (e.g. a generic favorite that needs a ticket
+number) always ask, also from the tray menu and hotkeys (see
+[Configuration](configuration.md#asking-for-a-note)). While an activity runs, Enter in the note field applies the note to it:
 the running activity ends now and starts again with the new note (notes of
 existing entries are never changed). Starting the running favorite again with a
 different note does the same; without a note it changes nothing.
@@ -130,7 +134,8 @@ activity restarts at the end of the entry.
 - Left click opens the popover (macOS, Windows). On Linux, use "Open popover"
   in the menu (AppIndicator icons only have menus).
 - Menu: running activity with its elapsed time ("Running for 1h 23m (since
-  09:30)", also when the text next to the icon is clipped), offline/pending state, Open popover, Stop, Resume
+  09:30)", also when the text next to the icon is clipped), offline/pending state, Open popover, Stop, Leave a note… (opens the
+  popover's note field for the running activity), Resume
   *last activity* (with its full path, since the same title can appear in
   several folders), Favorites (nested, in configured order), Settings…, Quit.
 - Text next to the icon (`tray.display`): `icon` (none), `elapsed` (`1h 23m`),

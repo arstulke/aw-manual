@@ -25,10 +25,26 @@ struct State {
     shown_at: Mutex<Option<Instant>>,
 }
 
-#[derive(Clone, Serialize)]
-struct Opened {
-    /// What opened the popover: "hotkey", "tray", "cli", "launch".
-    trigger: String,
+/// Payload of the `popover:opened` event.
+#[derive(Clone, Default, Serialize)]
+pub struct Opened {
+    /// What opened the popover: "hotkey", "tray", "cli", "launch", "note".
+    pub trigger: String,
+    /// Ask for a note for this favorite, then start it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub favorite: Option<String>,
+    /// Open the note field for the running activity.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub note: bool,
+}
+
+impl Opened {
+    pub fn new(trigger: &str) -> Self {
+        Opened {
+            trigger: trigger.to_string(),
+            ..Default::default()
+        }
+    }
 }
 
 /// True on a native Wayland session, where windows cannot position themselves.
@@ -113,6 +129,10 @@ fn position_at_cursor(app: &AppHandle, w: &WebviewWindow) -> tauri::Result<()> {
 }
 
 pub fn show(app: &AppHandle, trigger: &str) -> tauri::Result<()> {
+    show_with(app, Opened::new(trigger))
+}
+
+pub fn show_with(app: &AppHandle, opened: Opened) -> tauri::Result<()> {
     let w = window(app)?;
     let open_at_cursor = app
         .state::<std::sync::Arc<Svc>>()
@@ -130,12 +150,7 @@ pub fn show(app: &AppHandle, trigger: &str) -> tauri::Result<()> {
     let state = app.state::<State>();
     *state.shown_at.lock().unwrap() = Some(Instant::now());
     state.visible.store(true, Ordering::SeqCst);
-    app.emit(
-        "popover:opened",
-        Opened {
-            trigger: trigger.to_string(),
-        },
-    )?;
+    app.emit("popover:opened", opened)?;
     w.show()?;
     w.set_focus()?;
     Ok(())
@@ -189,4 +204,37 @@ pub fn nav(app: &AppHandle, command: NavCommand) -> tauri::Result<bool> {
     }
     app.emit("popover:nav", command)?;
     Ok(true)
+}
+
+/// Starts a favorite from the tray or a hotkey. Favorites with `ask_note`
+/// open the popover with the note field instead.
+pub fn start_or_ask(
+    app: &AppHandle,
+    id: &str,
+    source: Source,
+    trigger: &str,
+) -> Result<(), String> {
+    let svc = app.state::<std::sync::Arc<Svc>>().inner().clone();
+    let ask = svc
+        .loaded()
+        .favorites
+        .tree
+        .find(id)
+        .is_some_and(|f| f.is_leaf() && f.ask_note);
+    if ask {
+        return show_with(
+            app,
+            Opened {
+                favorite: Some(id.to_string()),
+                ..Opened::new(trigger)
+            },
+        )
+        .map_err(|e| e.to_string());
+    }
+    svc.call(
+        "start",
+        serde_json::json!({"target": {"favorite": id}, "source": source}),
+    )
+    .map(|_| ())
+    .map_err(|e| e.message)
 }

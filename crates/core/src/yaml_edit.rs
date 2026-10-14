@@ -292,6 +292,8 @@ pub struct NewFavorite {
     pub color: Option<String>,
     #[serde(default)]
     pub icon: Option<String>,
+    #[serde(default)]
+    pub ask_note: bool,
 }
 
 impl NewFavorite {
@@ -344,6 +346,9 @@ impl NewFavorite {
         if self.kind == Some(Kind::Status) {
             out.push_str(&format!("{inner}_kind: status\n"));
         }
+        if self.ask_note {
+            out.push_str(&format!("{inner}_ask_note: true\n"));
+        }
         out
     }
 
@@ -368,6 +373,9 @@ impl NewFavorite {
         }
         if self.kind == Some(Kind::Status) {
             out.push_str(&format!("{inner}kind: status\n"));
+        }
+        if self.ask_note {
+            out.push_str(&format!("{inner}ask_note: true\n"));
         }
         out
     }
@@ -786,6 +794,7 @@ mod tests {
             kind: None,
             color: None,
             icon: None,
+            ask_note: false,
         }
     }
 
@@ -799,11 +808,12 @@ mod tests {
             &NewFavorite {
                 kind: Some(Kind::Status),
                 icon: Some("coffee".into()),
+                ask_note: true,
                 ..fav("Lunch")
             },
         )
         .unwrap();
-        assert!(out.contains("  Break:\n    _kind: status\n  Lunch:\n    _icon: coffee\n    _kind: status\n\n# end\n"), "{out}");
+        assert!(out.contains("  Break:\n    _kind: status\n  Lunch:\n    _icon: coffee\n    _kind: status\n    _ask_note: true\n\n# end\n"), "{out}");
         let out = add_favorite(
             &out,
             &["acme", "website"],

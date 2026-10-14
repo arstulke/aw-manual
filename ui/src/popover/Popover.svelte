@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import { api, errorText, onClosed, onNav, onOpened, onStateChanged } from "../lib/api";
+  import { api, errorText, onClosed, onNav, onOpened, onStateChanged, type Opened } from "../lib/api";
   import { formatClock, formatElapsed, iconGlyph, parseDuration, PATH_SEPARATOR } from "../lib/format";
   import { search } from "../lib/fuzzy";
   import { DrillDown, ExpandedTree, type NavItem, type ScrollNav } from "../lib/nav";
@@ -15,6 +15,8 @@
   let query = $state("");
   let note = $state("");
   let noteOpen = $state(false);
+  /** A favorite waiting for its note (ask_note, Shift+Enter, right click). */
+  let noteFor = $state<Favorite | null>(null);
   let retro = $state(false);
   let range = $state("");
   let preview = $state<{ text?: string; error?: string } | null>(null);
@@ -99,12 +101,22 @@
     }, dwellMs);
   }
 
-  async function reset() {
+  function findFavorite(nodes: Favorite[], id: string): Favorite | null {
+    for (const f of nodes) {
+      if (f.id === id) return f;
+      const c = findFavorite(f.children ?? [], id);
+      if (c) return c;
+    }
+    return null;
+  }
+
+  async function reset(opened?: Opened) {
     clearTimers();
     mode = "scroll";
     query = "";
     note = "";
     noteOpen = false;
+    noteFor = null;
     retro = false;
     range = "";
     preview = null;
@@ -118,6 +130,15 @@
     drill = new Nav(snap.favorites, snap.status.running?.id ?? null, snap.scroll.wrap_around);
     drill.startAt(snap.scroll.start_at);
     navVersion++;
+    const fav = opened?.favorite ? findFavorite(snap.favorites, opened.favorite) : null;
+    if (fav && fav.type === "leaf") {
+      await askNote(fav);
+      return;
+    }
+    if (opened?.note && snap.status.running) {
+      await openNote();
+      return;
+    }
     restartTimeout();
     await tick();
     listEl?.focus();
@@ -132,8 +153,27 @@
     }
   }
 
-  async function startFavorite(fav: Favorite) {
+  /** Switches to keyboard mode with the note field focused. */
+  async function openNote() {
+    await enterKeyboard();
+    noteOpen = true;
+    await tick();
+    noteEl?.focus();
+  }
+
+  /** Asks for a note before starting the favorite (Enter in the note field starts it). */
+  async function askNote(fav: Favorite) {
+    if (fav.type !== "leaf") return;
+    noteFor = fav;
+    await openNote();
+  }
+
+  async function startFavorite(fav: Favorite, asked = false) {
     if (busy) return;
+    if (fav.ask_note && !asked && !(mode === "keyboard" && note.trim())) {
+      await askNote(fav);
+      return;
+    }
     busy = true;
     error = "";
     clearTimers();
@@ -172,6 +212,11 @@
   }
 
   async function applyNote() {
+    if (noteFor) {
+      const fav = noteFor;
+      await startFavorite(fav, true);
+      return;
+    }
     if (running && !retro) {
       busy = true;
       try {
@@ -333,11 +378,7 @@
     }
     if (ctrl && key === "n") {
       e.preventDefault();
-      enterKeyboard().then(async () => {
-        noteOpen = true;
-        await tick();
-        noteEl?.focus();
-      });
+      openNote();
       return;
     }
     if (ctrl && key === "r") {
@@ -404,6 +445,7 @@
       } else if (e.key === "Escape") {
         e.preventDefault();
         noteOpen = false;
+        noteFor = null;
         note = "";
         searchEl?.focus();
       }
@@ -440,7 +482,12 @@
         break;
       case "Enter":
         e.preventDefault();
-        nav("confirm");
+        if (e.shiftKey) {
+          const row = kbList[kbIndex];
+          if (row) askNote(row.fav);
+        } else {
+          nav("confirm");
+        }
         break;
       case "ArrowRight":
         if (!query) {
@@ -543,7 +590,7 @@
 
   onMount(() => {
     const unlisten = [
-      onOpened(() => reset()),
+      onOpened((o) => reset(o)),
       onClosed(() => clearTimers()),
       onNav((cmd) => nav(cmd)),
       onStateChanged(() => refresh()),
@@ -626,6 +673,10 @@
           class={item.kind}
           style={item.kind !== "back" && item.kind !== "stop" && item.kind !== "cancel" && item.depth ? `padding-left: ${10 + item.depth * 18}px` : undefined}
           onclick={() => clickNav(i)}
+          oncontextmenu={(e) => {
+            e.preventDefault();
+            if (item.kind === "leaf") askNote(item.fav);
+          }}
         >
           {#if item.kind === "back"}
             <span class="label">‹ Back</span>
@@ -642,6 +693,7 @@
             <span class="icon">{iconGlyph(item.fav.icon?.value)}</span>
             <span class="label">{item.fav.title}</span>
             {#if item.kind === "folder"}<span class="chev">›</span>{/if}
+            {#if item.kind === "leaf" && item.fav.ask_note}<span class="tag" title="Asks for a note">note</span>{/if}
             {#if item.kind === "leaf" && item.fav.id === running?.id}<span class="tag">running</span>{/if}
             {#if item.kind === "leaf" && item.fav.kind === "status"}<span class="tag">status</span>{/if}
           {/if}
@@ -653,7 +705,10 @@
     {:else}
       {#each kbList as row, i (row.fav.id)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <li role="option" aria-selected={i === kbIndex} class:hl={i === kbIndex} class={row.fav.type} style={`padding-left: ${10 + row.depth * 18}px`} onclick={() => clickRow(i)}>
+        <li role="option" aria-selected={i === kbIndex} class:hl={i === kbIndex} class={row.fav.type} style={`padding-left: ${10 + row.depth * 18}px`} onclick={() => clickRow(i)} oncontextmenu={(e) => {
+            e.preventDefault();
+            askNote(row.fav);
+          }}>
           {#if row.fav.type === "folder"}<span class="chev tree">{row.expanded ? "▾" : "▸"}</span>{/if}
           <span class="dot small" style={`background: ${dot(row.fav)}`}></span>
           <span class="icon">{iconGlyph(row.fav.icon?.value)}</span>
@@ -664,6 +719,7 @@
               {row.fav.title}
             {/if}
           </span>
+          {#if row.fav.ask_note}<span class="tag" title="Asks for a note">note</span>{/if}
           {#if row.fav.id === running?.id}<span class="tag">running</span>{/if}
           {#if row.fav.kind === "status"}<span class="tag">status</span>{/if}
         </li>
@@ -675,7 +731,15 @@
 
   {#if noteOpen}
     <div class="note-row">
-      <input bind:this={noteEl} bind:value={note} placeholder={running && !retro ? "New note – Enter applies it to the running activity" : "Note for the activity you start"} />
+      <input
+        bind:this={noteEl}
+        bind:value={note}
+        placeholder={noteFor
+          ? `Note for ${noteFor.path.join(PATH_SEPARATOR)} – Enter ${retro ? "logs" : "starts"} it`
+          : running && !retro
+            ? "New note – Enter applies it to the running activity"
+            : "Note for the activity you start"}
+      />
     </div>
   {/if}
 
@@ -689,7 +753,7 @@
       {#if mode === "scroll"}
         scroll to select · hotkey/<kbd>Enter</kbd> confirm · type to search · <kbd>Tab</kbd> tree
       {:else}
-        <kbd>↑↓</kbd>/scroll select · <kbd>Enter</kbd> {retro ? "log" : "start"} · <kbd>Ctrl</kbd>+<kbd>N</kbd> note · <kbd>Ctrl</kbd>+<kbd>R</kbd> retroactive · <kbd>Ctrl</kbd>+<kbd>S</kbd> stop · <kbd>Esc</kbd> close
+        <kbd>↑↓</kbd>/scroll select · <kbd>Enter</kbd> {retro ? "log" : "start"} · <kbd>Shift</kbd>+<kbd>Enter</kbd>/right click with note · <kbd>Ctrl</kbd>+<kbd>N</kbd> note · <kbd>Ctrl</kbd>+<kbd>R</kbd> retroactive · <kbd>Ctrl</kbd>+<kbd>S</kbd> stop · <kbd>Esc</kbd> close
       {/if}
     </div>
   </footer>

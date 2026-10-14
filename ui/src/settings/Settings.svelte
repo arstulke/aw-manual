@@ -67,6 +67,7 @@
   let favUseColor = $state(false);
   let favColor = $state("#3b82f6");
   let favIcon = $state("");
+  let favAskNote = $state(false);
   let favError = $state("");
   let favBusy = $state(false);
 
@@ -228,6 +229,7 @@
           kind: favKind,
           color: favUseColor ? favColor : null,
           icon: favIcon.trim() || null,
+          ask_note: favAskNote,
         },
       });
       favTitle = "";
@@ -235,6 +237,7 @@
       favIcon = "";
       favUseColor = false;
       favKind = "activity";
+      favAskNote = false;
       await load(false);
     } catch (e) {
       favError = errorText(e);
@@ -500,6 +503,7 @@
             <input type="color" bind:value={favColor} disabled={!favUseColor} />
           </div>
           <label>Icon <input bind:value={favIcon} placeholder="e.g. code, coffee or an emoji" /></label>
+          <label class="check"><input type="checkbox" bind:checked={favAskNote} /> Always ask for a note when started (e.g. a ticket number)</label>
           <div><button class="primary" disabled={!favTitle.trim() || favBusy} onclick={addFavorite}>Add favorite</button></div>
           {#if favError}<p class="error">{favError}</p>{/if}
         </section>

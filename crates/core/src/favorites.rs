@@ -48,6 +48,8 @@ pub struct RawNode {
     pub color: Option<String>,
     pub icon: Option<String>,
     pub kind: Option<Kind>,
+    /// Ask for a note when the favorite is started from the popover, tray or a hotkey.
+    pub ask_note: Option<bool>,
     pub children: Vec<RawNode>,
     pub line: usize,
     /// Whether the ID was set explicitly (`_id` or explicit notation).
@@ -137,8 +139,10 @@ impl Errs {
 }
 
 const FILE_KEYS: &[&str] = &["favorites", "generated", "parent", "schema_version"];
-const COMPACT_PROPS: &[&str] = &["_id", "_color", "_icon", "_kind"];
-const EXPLICIT_FIELDS: &[&str] = &["id", "title", "color", "icon", "kind", "children"];
+const COMPACT_PROPS: &[&str] = &["_id", "_color", "_icon", "_kind", "_ask_note"];
+const EXPLICIT_FIELDS: &[&str] = &[
+    "id", "title", "color", "icon", "kind", "ask_note", "children",
+];
 
 /// Parses one favorites file.
 pub fn parse_favorites_file(src: &str) -> Result<ParsedFile, Vec<YamlError>> {
@@ -349,6 +353,7 @@ fn parse_compact_node(title: String, key: &Node, value: &Node, errs: &mut Errs) 
     let mut icon = None;
     let mut kind = None;
     let mut kind_node: Option<&Node> = None;
+    let mut ask_note = None;
     let mut children = Vec::new();
     let mut ok = true;
     match &value.kind {
@@ -367,6 +372,16 @@ fn parse_compact_node(title: String, key: &Node, value: &Node, errs: &mut Errs) 
                             ),
                         );
                         ok = false;
+                        continue;
+                    }
+                    if name == "_ask_note" {
+                        match v.as_bool() {
+                            Some(b) => ask_note = Some(b),
+                            None => {
+                                errs.push(v, "_ask_note must be true or false");
+                                ok = false;
+                            }
+                        }
                         continue;
                     }
                     let Some(val) = scalar_prop(name, v, errs) else {
@@ -415,6 +430,7 @@ fn parse_compact_node(title: String, key: &Node, value: &Node, errs: &mut Errs) 
                                 color: None,
                                 icon: None,
                                 kind: None,
+                                ask_note: None,
                                 children: Vec::new(),
                                 line: item.line(),
                                 explicit_id: false,
@@ -463,6 +479,7 @@ fn parse_compact_node(title: String, key: &Node, value: &Node, errs: &mut Errs) 
         color,
         icon,
         kind,
+        ask_note,
         children,
         line: key.line(),
         explicit_id,
@@ -546,6 +563,18 @@ fn parse_explicit_node(item: &Node, errs: &mut Errs) -> Option<RawNode> {
             }
         },
     };
+    let ask_note = match item.get("ask_note") {
+        None => None,
+        Some(n) if n.is_null() => None,
+        Some(n) => match n.as_bool() {
+            Some(b) => Some(b),
+            None => {
+                errs.push(n, "ask_note must be true or false");
+                ok = false;
+                None
+            }
+        },
+    };
     let children = match item.get("children") {
         None => Vec::new(),
         Some(c) => match &c.kind {
@@ -574,6 +603,7 @@ fn parse_explicit_node(item: &Node, errs: &mut Errs) -> Option<RawNode> {
         color,
         icon,
         kind,
+        ask_note,
         children,
         line: item.line(),
         explicit_id: true,
@@ -613,6 +643,9 @@ pub struct Favorite {
     pub kind: Option<Kind>,
     pub color: Option<Resolved>,
     pub icon: Option<Resolved>,
+    /// Ask for a note when started from the popover, tray or a hotkey
+    /// (inherited from the nearest ancestor that sets it).
+    pub ask_note: bool,
     pub file: PathBuf,
     pub line: usize,
     pub generated: bool,
@@ -622,6 +655,8 @@ pub struct Favorite {
     own_color: Option<String>,
     #[serde(skip)]
     own_icon: Option<String>,
+    #[serde(skip)]
+    own_ask_note: Option<bool>,
     /// Whether the ID was set explicitly (see `config check --strict`).
     #[serde(skip)]
     pub explicit_id: bool,
@@ -715,8 +750,9 @@ impl FavoritesTree {
     }
 
     fn resolve_inheritance(&mut self) {
-        fn walk(nodes: &mut [Favorite], color: Option<&str>, icon: Option<&str>) {
+        fn walk(nodes: &mut [Favorite], color: Option<&str>, icon: Option<&str>, ask_note: bool) {
             for n in nodes {
+                n.ask_note = n.own_ask_note.unwrap_or(ask_note);
                 n.color = match (&n.own_color, color) {
                     (Some(c), _) => Some(Resolved {
                         value: c.clone(),
@@ -741,10 +777,10 @@ impl FavoritesTree {
                 };
                 let c = n.color.as_ref().map(|r| r.value.clone());
                 let i = n.icon.as_ref().map(|r| r.value.clone());
-                walk(&mut n.children, c.as_deref(), i.as_deref());
+                walk(&mut n.children, c.as_deref(), i.as_deref(), n.ask_note);
             }
         }
-        walk(&mut self.roots, None, None);
+        walk(&mut self.roots, None, None, false);
     }
 }
 
@@ -839,12 +875,14 @@ impl Merger {
                 },
                 color: None,
                 icon: None,
+                ask_note: false,
                 file: path.to_path_buf(),
                 line: n.line,
                 generated: file.generated,
                 children,
                 own_color: n.color.clone(),
                 own_icon: n.icon.clone(),
+                own_ask_note: n.ask_note,
                 explicit_id: n.explicit_id,
             }
         }
@@ -1293,6 +1331,22 @@ favorites:
         let (_, e) = tree(&[("10.yaml", CLIENTS), ("20.yaml", missing)]);
         assert!(e[0].1.message.contains("does not exist"));
         assert_eq!(e[0].1.line, 1);
+    }
+
+    #[test]
+    fn ask_note_is_inherited() {
+        let compact = "favorites:\n  Tickets:\n    _ask_note: true\n    Bug:\n    Chat:\n      _ask_note: false\n  Break:\n";
+        let (t, e) = tree(&[("10.yaml", compact)]);
+        assert!(e.is_empty(), "{e:?}");
+        assert!(t.find("tickets/bug").unwrap().ask_note);
+        assert!(!t.find("tickets/chat").unwrap().ask_note);
+        assert!(!t.find("break").unwrap().ask_note);
+        let explicit = "parent: break\nfavorites:\n  - id: x\n    title: X\n    ask_note: true\n";
+        let (t, e) = tree(&[("10.yaml", compact), ("20.yaml", explicit)]);
+        assert!(e.is_empty(), "{e:?}");
+        assert!(t.find("break/x").unwrap().ask_note);
+        assert!(!errs("favorites:\n  A:\n    _ask_note: maybe\n").is_empty());
+        assert!(!errs("favorites:\n  - id: a\n    title: A\n    ask_note: 1\n").is_empty());
     }
 
     #[test]

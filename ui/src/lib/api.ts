@@ -14,8 +14,17 @@ export const api = {
   openSettings: () => invoke("open_settings"),
 };
 
-export function onOpened(f: (trigger: string) => void): Promise<UnlistenFn> {
-  return listen<{ trigger: string }>("popover:opened", (e) => f(e.payload.trigger));
+/** Why the popover was opened (payload of `popover:opened`). */
+export interface Opened {
+  trigger: string;
+  /** Ask for a note for this favorite, then start it. */
+  favorite?: string;
+  /** Open the note field for the running activity. */
+  note?: boolean;
+}
+
+export function onOpened(f: (opened: Opened) => void): Promise<UnlistenFn> {
+  return listen<Opened>("popover:opened", (e) => f(e.payload));
 }
 
 export function onClosed(f: () => void): Promise<UnlistenFn> {

@@ -9,6 +9,7 @@ pub mod duration;
 pub mod engine;
 pub mod favorites;
 pub mod format;
+pub mod gap;
 pub mod ipc;
 pub mod model;
 pub mod paths;

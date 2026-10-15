@@ -80,7 +80,8 @@ tray:
 notifications:
   idle_reminder: 15m                # false to disable
   long_running: 3h                  # false to disable
-  after_restart: true
+  after_restart: 1m                 # after a (re-)start: ask what you did if aw-manual was stopped at least 1m; false to disable
+  after_unlock: 1m                  # after unlocking: ask what you did if the screen was locked at least 1m; false to disable
   offline: true
   work_hours:                       # for the idle reminder
     days: [mon, tue, wed, thu, fri]
@@ -89,12 +90,13 @@ notifications:
 
 popover:
   scroll:
+    layout: tree                    # tree (all folders expanded, scroll through leaves) | levels (one folder at a time)
     confirm_with_hotkey: true
     dwell_confirm: false            # confirm by dwell time
     dwell_time: 2s
     timeout: 10s                    # must be longer than dwell_time
     sensitivity: 1.0                # threshold factor per scroll step
-    wrap_around: false
+    wrap_around: true
     open_at_cursor: true
     start_at: running               # running | first
     horizontal: false               # left = back, right = confirm
@@ -109,8 +111,23 @@ openaction:                         # phase 2 (OpenAction plugin)
   toggle_running: stop              # stop | none
 ```
 
-Durations: `500ms`, `30s`, `15m`, `1h30m`, `1.5h`, `1d`. Times of day must be
-quoted (`"08:00"`).
+Times of day must be quoted (`"08:00"`).
+
+### Durations
+
+A duration is one or more `<number><unit>` parts: `500ms`, `30s`, `15m`,
+`1h30m`, `1h 30m`, `1.5h`, `1d`. Units: `ms`, `s` (`sec`), `m` (`min`), `h`
+(`hr`), `d`. A number without a unit is an error. Settings marked "or false"
+can be disabled with `false`.
+
+| Setting | Allowed values |
+|---|---|
+| `server.heartbeat_interval` | `5s` … `10m` |
+| `notifications.idle_reminder`, `notifications.long_running` | longer than 0, or `false` |
+| `notifications.after_restart` | longer than 0, or `false`. aw-manual records every 15 s that it is running, so stops are measured to about 15 s |
+| `notifications.after_unlock` | longer than 0, or `false`. The lock state is checked every 2 s, so shorter locks may go unnoticed |
+| `popover.scroll.dwell_time` | longer than 0 |
+| `popover.scroll.timeout` | longer than `dwell_time` |
 
 ## Favorites files
 
@@ -145,7 +162,8 @@ favorites:
     _icon: coffee
 ```
 
-- Properties: `_id`, `_color`, `_icon`, `_kind`. Unknown `_` keys are errors.
+- Properties: `_id`, `_color`, `_icon`, `_kind`, `_ask_note`. Unknown `_`
+  keys are errors.
   Titles must not start with `_`.
 - A node is a **leaf** if its value is empty or contains only properties
   (`Development: {_icon: code}`); as soon as it has a child, it is a folder.
@@ -177,13 +195,33 @@ favorites:
 ```
 
 Fields: `id` (required), `title` (required), `color`, `icon`, `kind`,
-`children`. IDs may contain letters, digits, `.`, `_` and `-`. The resulting
+`ask_note`, `children`. IDs may contain letters, digits, `.`, `_` and `-`. The resulting
 full IDs here are `acme/website/web-123` and `acme/website/web-140`.
+
+### Asking for a note
+
+`_ask_note: true` (explicit notation: `ask_note: true`) makes a favorite ask
+for a note whenever it is started from the popover, the tray menu or a hotkey,
+e.g. a generic "Ticket work" favorite that needs the ticket number:
+
+```yaml
+favorites:
+  ACME:
+    Tickets:
+      _ask_note: true          # every leaf below asks for a note
+      Bug fixing:
+      Review:
+        _ask_note: false       # except this one
+```
+
+The popover then opens with the note field; Enter starts the favorite with the
+note (an empty note starts it without one), Esc cancels. The CLI never asks
+(use `--note`).
 
 ### Inheritance
 
-`color` and `icon` are inherited from the nearest ancestor that defines them;
-a child overrides them with its own value. `kind` is not inherited and only
+`color`, `icon` and `ask_note` are inherited from the nearest ancestor that
+defines them; a child overrides them with its own value. `kind` is not inherited and only
 allowed on leaves. With `parent`, favorites inherit from the referenced folder.
 `aw-manual list --json` shows the resolved values, marked `own` or `inherited`.
 
@@ -198,13 +236,19 @@ emoji directly (`_icon: "🎯"`).
 
 - Order: folders in the order of `favorites.dirs`, files by file name, entries
   in written order. Numeric prefixes (`10-`, `50-`) control the order.
-- `parent` (full ID of a folder) attaches a file's favorites below a folder
-  defined in a file that loads **earlier**; they are appended after the
-  folder's existing children. Both notations support `parent` and `generated`.
+- `parent` (full ID of a folder or leaf) attaches a file's favorites below a
+  node defined in a file that loads **earlier**; they are appended after the
+  node's existing children. Both notations support `parent` and `generated`.
+- If `parent` is a **leaf**, it becomes a folder as soon as the file adds at
+  least one favorite to it (its `kind` no longer applies, and it can no longer
+  be started). This lets you define the rough structure by hand and let a
+  generated file fill in the final leaves, e.g. `10-clients.yaml` defines
+  `ACME › Tickets` as a leaf and `50-jira.yaml` (`parent: acme/tickets`) adds
+  the tickets below it. While the generated file is missing or empty, the leaf
+  stays startable.
 - A file is **rejected as a whole** if it defines a full ID that already
   exists (the error names both files; the earlier definition stays), if its
-  `parent` doesn't exist or is a leaf (a leaf never silently becomes a folder),
-  or if it is invalid. Other files keep working.
+  `parent` doesn't exist, or if it is invalid. Other files keep working.
 
 ### Tips for generators
 

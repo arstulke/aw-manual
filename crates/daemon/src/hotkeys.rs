@@ -75,13 +75,7 @@ pub fn trigger(app: &AppHandle, action: &Action) {
             .call("resume", json!({"source": Source::Hotkey}))
             .map(|_| ())
             .map_err(|e| e.message),
-        Action::Favorite(id) => svc
-            .call(
-                "start",
-                json!({"target": {"favorite": id}, "source": Source::Hotkey}),
-            )
-            .map(|_| ())
-            .map_err(|e| e.message),
+        Action::Favorite(id) => popover::start_or_ask(app, id, Source::Hotkey, "hotkey"),
     };
     if let Err(e) = result {
         tracing::info!("hotkey action {} failed: {e}", action.id());

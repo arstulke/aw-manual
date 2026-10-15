@@ -88,7 +88,14 @@ pub struct NotificationsConfig {
     pub idle_reminder: Option<Duration>,
     #[serde(serialize_with = "ser_opt_duration")]
     pub long_running: Option<Duration>,
-    pub after_restart: bool,
+    /// After a (re-)start, when aw-manual was stopped at least this long: ask
+    /// what the user did meanwhile and what to continue with (`None` = disabled).
+    #[serde(serialize_with = "ser_opt_duration")]
+    pub after_restart: Option<Duration>,
+    /// After unlocking the screen, when it was locked at least this long: ask
+    /// what the user did meanwhile and what to continue with (`None` = disabled).
+    #[serde(serialize_with = "ser_opt_duration")]
+    pub after_unlock: Option<Duration>,
     pub offline: bool,
     pub work_hours: WorkHours,
 }
@@ -100,8 +107,19 @@ pub enum StartAt {
     First,
 }
 
+/// How scroll mode shows the favorites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScrollLayout {
+    /// The whole tree, expanded; scrolling steps through the leaves only.
+    Tree,
+    /// One folder level at a time (confirm opens a folder, "‹ Back" leaves it).
+    Levels,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ScrollConfig {
+    pub layout: ScrollLayout,
     pub confirm_with_hotkey: bool,
     pub dwell_confirm: bool,
     #[serde(serialize_with = "ser_duration")]
@@ -221,7 +239,8 @@ impl Default for Config {
             notifications: NotificationsConfig {
                 idle_reminder: Some(Duration::from_secs(15 * 60)),
                 long_running: Some(Duration::from_secs(3 * 3600)),
-                after_restart: true,
+                after_restart: Some(Duration::from_secs(60)),
+                after_unlock: Some(Duration::from_secs(60)),
                 offline: true,
                 work_hours: WorkHours {
                     days: vec![
@@ -237,12 +256,13 @@ impl Default for Config {
             },
             popover: PopoverConfig {
                 scroll: ScrollConfig {
+                    layout: ScrollLayout::Tree,
                     confirm_with_hotkey: true,
                     dwell_confirm: false,
                     dwell_time: Duration::from_secs(2),
                     timeout: Duration::from_secs(10),
                     sensitivity: 1.0,
-                    wrap_around: false,
+                    wrap_around: true,
                     open_at_cursor: true,
                     start_at: StartAt::Running,
                     horizontal: false,
@@ -290,7 +310,8 @@ tray:
 notifications:
   idle_reminder: 15m                # false to disable
   long_running: 3h                  # false to disable
-  after_restart: true
+  after_restart: 1m                 # after a (re-)start: ask what you did if aw-manual was stopped at least 1m; false to disable
+  after_unlock: 1m                  # after unlocking: ask what you did if the screen was locked at least 1m; false to disable
   offline: true
   work_hours:
     days: [mon, tue, wed, thu, fri]
@@ -299,12 +320,13 @@ notifications:
 
 popover:
   scroll:
+    layout: tree                    # tree (all folders expanded) | levels (one folder at a time)
     confirm_with_hotkey: true
     dwell_confirm: false            # confirm by dwell time
     dwell_time: 2s
     timeout: 10s                    # must be longer than dwell_time
     sensitivity: 1.0                # threshold factor per step
-    wrap_around: false
+    wrap_around: true
     open_at_cursor: true
     start_at: running               # running | first
 "##;
@@ -797,6 +819,7 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
                 "idle_reminder",
                 "long_running",
                 "after_restart",
+                "after_unlock",
                 "offline",
                 "work_hours",
             ],
@@ -814,10 +837,20 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
             &mut cfg.notifications.long_running,
             &mut errs,
         );
-        read_bool(
-            entry(s, "after_restart"),
-            "notifications.after_restart",
-            &mut cfg.notifications.after_restart,
+        // `true` (older configurations) keeps the default minimum.
+        match entry(s, "after_restart") {
+            Some(n) if n.as_bool() == Some(true) => {}
+            n => read_opt_duration(
+                n,
+                "notifications.after_restart",
+                &mut cfg.notifications.after_restart,
+                &mut errs,
+            ),
+        }
+        read_opt_duration(
+            entry(s, "after_unlock"),
+            "notifications.after_unlock",
+            &mut cfg.notifications.after_unlock,
             &mut errs,
         );
         read_bool(
@@ -883,6 +916,7 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
                 sc_node,
                 "popover.scroll",
                 &[
+                    "layout",
                     "confirm_with_hotkey",
                     "dwell_confirm",
                     "dwell_time",
@@ -896,6 +930,16 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
                 &mut errs,
             );
             let sc = &mut cfg.popover.scroll;
+            read_enum(
+                entry(s, "layout"),
+                "popover.scroll.layout",
+                &[
+                    ("tree", ScrollLayout::Tree),
+                    ("levels", ScrollLayout::Levels),
+                ],
+                &mut sc.layout,
+                &mut errs,
+            );
             read_bool(
                 entry(s, "confirm_with_hotkey"),
                 "popover.scroll.confirm_with_hotkey",
@@ -1137,6 +1181,7 @@ notifications:
     to: "18:00"
 popover:
   scroll:
+    layout: levels
     confirm_with_hotkey: true
     dwell_confirm: false
     dwell_time: 2s
@@ -1152,6 +1197,7 @@ openaction:
         assert_eq!(c.server.heartbeat_interval, Duration::from_secs(60));
         assert_eq!(c.pulsetime(), Duration::from_secs(90));
         assert_eq!(c.bucket_id("box"), "aw-manual_box");
+        assert_eq!(c.popover.scroll.layout, ScrollLayout::Levels);
     }
 
     #[test]
@@ -1168,6 +1214,22 @@ openaction:
         let src = "notifications:\n  idle_reminder: false\n  long_running: 90m\nhotkeys:\n  resume:\n  favorites:\n    acme/dev: Ctrl+Alt+1\n";
         let c = parse_config(src).unwrap();
         assert_eq!(c.notifications.idle_reminder, None);
+        let restart = |v: &str| {
+            parse_config(&format!("notifications:\n  after_restart: {v}\n"))
+                .unwrap()
+                .notifications
+                .after_restart
+        };
+        assert_eq!(restart("true"), Some(Duration::from_secs(60)));
+        assert_eq!(restart("10m"), Some(Duration::from_secs(600)));
+        assert_eq!(restart("false"), None);
+        assert_eq!(
+            parse_config("notifications:\n  after_unlock: false\n")
+                .unwrap()
+                .notifications
+                .after_unlock,
+            None
+        );
         assert_eq!(
             c.notifications.long_running,
             Some(Duration::from_secs(5400))

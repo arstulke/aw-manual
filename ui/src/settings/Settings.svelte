@@ -67,6 +67,7 @@
   let favUseColor = $state(false);
   let favColor = $state("#3b82f6");
   let favIcon = $state("");
+  let favAskNote = $state(false);
   let favError = $state("");
   let favBusy = $state(false);
 
@@ -90,10 +91,12 @@
       "notifications.idle_reminder": c.notifications.idle_reminder,
       "notifications.long_running": c.notifications.long_running,
       "notifications.after_restart": c.notifications.after_restart,
+      "notifications.after_unlock": c.notifications.after_unlock,
       "notifications.offline": c.notifications.offline,
       "notifications.work_hours.days": [...c.notifications.work_hours.days],
       "notifications.work_hours.from": c.notifications.work_hours.from,
       "notifications.work_hours.to": c.notifications.work_hours.to,
+      "popover.scroll.layout": s.layout,
       "popover.scroll.confirm_with_hotkey": s.confirm_with_hotkey,
       "popover.scroll.dwell_confirm": s.dwell_confirm,
       "popover.scroll.dwell_time": s.dwell_time,
@@ -111,6 +114,10 @@
   let idleValue = $state("15m");
   let longOn = $state(true);
   let longValue = $state("3h");
+  let restartOn = $state(true);
+  let restartValue = $state("1m");
+  let unlockOn = $state(true);
+  let unlockValue = $state("1m");
 
   async function load(resetForm: boolean) {
     try {
@@ -125,6 +132,12 @@
         const long = data.config.notifications.long_running;
         longOn = long !== false;
         longValue = long === false ? "3h" : long;
+        const unlock = data.config.notifications.after_unlock;
+        unlockOn = unlock !== false;
+        unlockValue = unlock === false ? "1m" : unlock;
+        const restart = data.config.notifications.after_restart;
+        restartOn = restart !== false;
+        restartValue = restart === false ? "1m" : restart;
       }
     } catch (e) {
       loadError = errorText(e);
@@ -135,6 +148,8 @@
     const f = { ...form };
     f["notifications.idle_reminder"] = idleOn ? idleValue : false;
     f["notifications.long_running"] = longOn ? longValue : false;
+    f["notifications.after_unlock"] = unlockOn ? unlockValue : false;
+    f["notifications.after_restart"] = restartOn ? restartValue : false;
     const out: { path: string[]; value: any }[] = [];
     for (const [k, v] of Object.entries(f)) {
       if (JSON.stringify(v) !== JSON.stringify(original[k])) out.push({ path: k.split("."), value: v });
@@ -168,6 +183,12 @@
       const long = data.config.notifications.long_running;
       longOn = long !== false;
       longValue = long === false ? "3h" : long;
+      const unlock = data.config.notifications.after_unlock;
+      unlockOn = unlock !== false;
+      unlockValue = unlock === false ? "1m" : unlock;
+      const restart = data.config.notifications.after_restart;
+      restartOn = restart !== false;
+      restartValue = restart === false ? "1m" : restart;
     }
   }
 
@@ -227,6 +248,7 @@
           kind: favKind,
           color: favUseColor ? favColor : null,
           icon: favIcon.trim() || null,
+          ask_note: favAskNote,
         },
       });
       favTitle = "";
@@ -234,6 +256,7 @@
       favIcon = "";
       favUseColor = false;
       favKind = "activity";
+      favAskNote = false;
       await load(false);
     } catch (e) {
       favError = errorText(e);
@@ -389,8 +412,16 @@
             <label class="check"><input type="checkbox" bind:checked={longOn} /> Notify when the same activity has been running for</label>
             <input bind:value={longValue} class="short" disabled={!longOn} />
           </div>
-          <label class="check"><input type="checkbox" bind:checked={form["notifications.after_restart"]} /> After a restart, offer to resume the last activity</label>
+          <div class="row">
+            <label class="check"><input type="checkbox" bind:checked={restartOn} /> After a (re-)start, ask what I did meanwhile if aw-manual was stopped for at least</label>
+            <input bind:value={restartValue} class="short" disabled={!restartOn} />
+          </div>
+          <div class="row">
+            <label class="check"><input type="checkbox" bind:checked={unlockOn} /> After unlocking the screen, ask what I did meanwhile if it was locked for at least</label>
+            <input bind:value={unlockValue} class="short" disabled={!unlockOn} />
+          </div>
           <label class="check"><input type="checkbox" bind:checked={form["notifications.offline"]} /> Tell me when entries are being buffered (aw-server unreachable)</label>
+          <p class="hint">Durations: one or more number + unit parts, e.g. 10s, 1m, 15m, 1h30m or 1.5h (units ms, s, m, h, d).</p>
         </section>
         <h3>Working hours (for the reminder)</h3>
         <section>
@@ -408,6 +439,12 @@
         <h2>Popover – scroll mode</h2>
         <section>
           <p class="hint">Operate the popover with the hotkey and the scroll wheel only: scroll to select, confirm with the hotkey or by keeping the highlight on an item.</p>
+          <label>Layout
+            <select bind:value={form["popover.scroll.layout"]}>
+              <option value="tree">All folders expanded, scroll through the leaves</option>
+              <option value="levels">One folder level at a time</option>
+            </select>
+          </label>
           <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.confirm_with_hotkey"]} /> Confirm by pressing the hotkey again</label>
           <div class="row">
             <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.dwell_confirm"]} /> Confirm by dwell time</label>
@@ -493,6 +530,7 @@
             <input type="color" bind:value={favColor} disabled={!favUseColor} />
           </div>
           <label>Icon <input bind:value={favIcon} placeholder="e.g. code, coffee or an emoji" /></label>
+          <label class="check"><input type="checkbox" bind:checked={favAskNote} /> Always ask for a note when started (e.g. a ticket number)</label>
           <div><button class="primary" disabled={!favTitle.trim() || favBusy} onclick={addFavorite}>Add favorite</button></div>
           {#if favError}<p class="error">{favError}</p>{/if}
         </section>

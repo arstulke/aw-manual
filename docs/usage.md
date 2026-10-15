@@ -22,15 +22,16 @@ autostart (LaunchAgent on macOS, registry on Windows, XDG autostart on Linux).
 With Nix, the NixOS and Home Manager modules start it as a systemd user service.
 
 After a reboot or crash, a previously running activity is **not** resumed. It
-ends with its last heartbeat (at most one heartbeat interval is lost), and a
-notification "Last activity: … (ended 09:42)" offers to resume it.
+ends with its last heartbeat (at most one heartbeat interval is lost), and the
+popover asks what you did in between and what to continue with (see
+[After a restart or unlocking the screen](#after-a-restart-or-unlocking-the-screen)).
 
 ## Popover
 
 Open it with the popover hotkey (default **Ctrl+Alt+Space**), a click on the
 tray icon, or `aw-manual popover`. The window is kept alive in the background,
-so it appears immediately. It shows the running activity with its duration and
-a Stop button.
+so it appears immediately. It shows the running activity with its duration, a
+Stop button, and a ⚙ button that opens the settings window (also **Ctrl+,**).
 
 ### Scroll mode (hotkey + scroll wheel)
 
@@ -38,25 +39,34 @@ The popover opens in scroll mode. It can be used without keyboard, click or
 touch; the reference device is a regular mouse, with the hotkey on a side
 button (e.g. `hotkeys.popover: Mouse4`).
 
-- **Scroll** to move the highlight item by item through the current level, in
-  the configured order. The highlighted item is shown with its full path at
+- The list shows the **whole favorites tree, expanded** (`layout: tree`, the
+  default): folders are headings that stay pinned at the top while you scroll
+  through their contents, so the hierarchy of the highlighted item is always
+  visible, and **scrolling** moves the highlight through
+  the leaves only, in the configured order, so every favorite is reachable
+  without opening folders. With `layout: levels`, the list shows one folder
+  level at a time instead. The highlighted item is shown with its full path at
   the bottom.
 - **Confirm** by pressing the hotkey again (`popover.scroll.confirm_with_hotkey`,
   on by default) and/or by **dwell time**: keep the highlight on an item for
   `dwell_time` (default 2 s, `dwell_confirm: true`). A progress bar shows the
   countdown; any scroll restarts it. Dwell only starts after the first scroll
   movement, so opening the popover alone never triggers anything.
-- Confirming a **folder** opens it; a **leaf** starts the activity and closes the
-  popover; the **running activity** just closes the popover.
-- Navigation items: "‹ Back" (first item of every sub-level), "■ Stop" (first
-  item of the top level while an activity runs), "✕ Cancel" (last item).
+- Confirming a **leaf** starts the activity and closes the popover; the
+  **running activity** just closes the popover. With `layout: levels`,
+  confirming a **folder** opens it.
+- Navigation items: "■ Stop" (first item while an activity runs), "✕ Cancel"
+  (last item), and with `layout: levels` "‹ Back" (first item of every
+  sub-level). In the tree layout, Back jumps to the first leaf of the current
+  folder, then to the previous folder.
 - Without input, the popover closes after `timeout` (default 10 s; it must be
   longer than the dwell time).
 - The highlight starts on the running activity (`start_at: running`) or on the
   first favorite (`start_at: first`).
 - Each notch of a mouse wheel is one step. High-resolution wheels and touchpads
   are accumulated (one step per threshold, scaled by `sensitivity`), so they
-  don't race through the list. `wrap_around` jumps from the end to the start.
+  don't race through the list. Scrolling past the last item continues at the first one and vice versa
+  (`wrap_around`, on by default; also for the scroll wheel in keyboard mode).
 - `horizontal: true`: scrolling left (or wheel tilt) is Back, right is Confirm.
 - With `confirm_with_hotkey: false`, the hotkey closes the open popover.
 
@@ -75,13 +85,15 @@ need the keyboard.
 ### Keyboard mode
 
 Typing any letter switches to keyboard mode and searches; **Tab** switches to
-the favorites tree.
+the favorites tree (all folders expanded, unless `layout: levels`).
 
 | Key | Action |
 |---|---|
 | typing | fuzzy search over all favorites and their path (`acm web dev`); results are leaves only |
 | ↑ / ↓, PgUp / PgDn | move the highlight |
+| scroll wheel | move the highlight through the leaves (search results or tree); confirm with Enter, a click, or the popover hotkey |
 | Enter | start the highlighted favorite (or open/close a folder in the tree) |
+| Shift+Enter, right click | ask for a note, then start the favorite with it (both also work in scroll mode) |
 | → / ← | expand / collapse folders (tree, empty search) |
 | Esc | clear the search, then close |
 | Ctrl+N | note field |
@@ -90,7 +102,10 @@ the favorites tree.
 | Ctrl+, | settings |
 
 **Notes.** Enter a note before starting an activity, and it is stored with the
-entry. While an activity runs, Enter in the note field applies the note to it:
+entry. Shift+Enter or a right click on a favorite asks for a note first, and
+favorites with `_ask_note: true` (e.g. a generic favorite that needs a ticket
+number) always ask, also from the tray menu and hotkeys (see
+[Configuration](configuration.md#asking-for-a-note)). While an activity runs, Enter in the note field applies the note to it:
 the running activity ends now and starts again with the new note (notes of
 existing entries are never changed). Starting the running favorite again with a
 different note does the same; without a note it changes nothing.
@@ -106,6 +121,7 @@ pick a favorite and press Enter. Supported ranges:
 | `10:00 +45m`, `10:00 for 45m` | start plus duration |
 | `yesterday 16:00-17:30`, `2026-10-09 10:00-11:00` | another day |
 | `9am-10:30am`, `9-10` | 12-hour clock, bare hours |
+| `10:03:27-10:45:05` | with seconds |
 
 A clock time without a date means its most recent occurrence: if the start
 lies in the future today, the range moves to yesterday (`23:00-01:00` early in
@@ -116,19 +132,80 @@ A retroactive entry takes precedence: overlapping aw-manual entries are trimmed
 or split without asking. If it overlaps the running activity, the running
 activity restarts at the end of the entry.
 
+### After a restart or unlocking the screen
+
+Time in which you couldn't track anything (fixing a computer problem, an
+on-site meeting, helping a colleague, a break) is easy to fill in afterwards:
+
+1. **What were you doing?** The popover opens with the gap prefilled as a
+   retroactive range ("aw-manual wasn't running from 09:42 to 10:15" or "The
+   screen was locked from …"). The activity from before the gap is
+   preselected, so Enter logs it. Pick another favorite, or press Esc to skip
+   logging.
+2. **Continue with … from now?** Shift+Y continues the activity you just picked. It
+   is also highlighted in the list, so Enter continues it too; move the
+   highlight (or search) and press Enter to start another activity instead. If you skipped step 1, it offers the activity from before the gap:
+   after a restart it is resumed with its note; after unlocking it simply keeps
+   running.
+3. **What are you doing now?** If you answer No (Shift+N), pick the activity to
+   start from now on. Plain letters always go to the search (it ignores case),
+   so searching for "yellow" or "nothing" works. Esc at any step leaves things as they are.
+
+Nothing is recorded unless you pick something. After unlocking, a skipped gap
+stays part of the running activity, as aw-manual never pauses on its own.
+
+- `notifications.after_restart` (default `1m`): after a (re-)start of
+  aw-manual or the computer, ask what you did meanwhile if aw-manual was
+  stopped for at least that long. The daemon records every 15 s that it is
+  running, so quitting and starting it again works the same as a reboot or a
+  crash. After a shorter stop, it only offers to continue the activity that was
+  running. `false` disables it.
+- `notifications.after_unlock` (default `1m`): after unlocking the screen, ask
+  what you did meanwhile if it was locked for at least that long. `false`
+  disables it.
+
+Both take any [duration](configuration.md#durations), e.g. `10s`, `1m` or
+`5m`. The prefilled range includes seconds (`2026-10-15 09:42:10-09:42:52`);
+all time ranges accept seconds (`10:03:27-10:45`).
+
+**Screen lock detection.** The screen counts as locked if any source says so:
+
+| Platform | Sources |
+|---|---|
+| Linux | logind's `LockedHint` of your sessions (GNOME, KDE, lockers started via `loginctl lock-session` that report to logind); the screen saver D-Bus services (`org.freedesktop.ScreenSaver`, GNOME, Cinnamon, MATE, Xfce); a running locker process (`hyprlock`, `swaylock`, `gtklock`, `waylock`, `i3lock`, `xsecurelock`, `slock`, `physlock`, `xlock`) |
+| Windows | the lock screen (input desktop) |
+| macOS | `CGSSessionScreenIsLocked` |
+
+If the prompt doesn't appear after unlocking:
+
+1. Run `aw-manual-daemon --check-lock` in a terminal (a running daemon can
+   stay running), lock the screen for a few seconds and unlock it. It prints
+   every source whenever something changes; one of them must say `locked`
+   while the screen is locked. If none does, your locker isn't covered:
+   please report which one you use.
+2. Look at the log (`~/.local/share/aw-manual/logs/` on Linux, see
+   [Configuration](configuration.md#locations)). The daemon logs at `info`
+   level which sources it found at startup, `screen locked (detected by: …)`,
+   and on unlock why it asks or not (`not asking (minimum 1m)`, `prompt
+   disabled`, …). The restart prompt logs `restart prompt: …` the same way.
+
 ## Tray / menu bar
 
 - Icon states: idle (ring), active (filled, tinted in the favorite's color if
   `tray.color_icon`), offline or rejected entries (orange badge).
 - Left click opens the popover (macOS, Windows). On Linux, use "Open popover"
   in the menu (AppIndicator icons only have menus).
-- Menu: running activity, offline/pending state, Open popover, Stop, Resume
-  *last activity*, Favorites (nested, in configured order), Settings…, Quit.
+- Menu: running activity with its elapsed time ("Running for 1h 23m (since
+  09:30)", also when the text next to the icon is clipped), offline/pending state, Open popover, Stop, Leave a note… (opens the
+  popover's note field for the running activity), Resume
+  *last activity* (with its full path, since the same title can appear in
+  several folders), Favorites (nested, in configured order), Settings…, Quit.
 - Text next to the icon (`tray.display`): `icon` (none), `elapsed` (`1h 23m`),
   `since` (`since 09:30`), `title`, or `template` with `{title}`, `{path}`,
   `{elapsed}`, `{since}`, `{note}` (default `{title} · {elapsed}`).
   `elapsed_format` is `1h 23m`, `1:23`, `1h 23m 45s` or `1:23:45`; with seconds
-  the text updates every second, otherwise every minute. `time_format` is `24h`
+  the text updates every second, otherwise every minute. `1h 23m` shows seconds
+  during the first minute (`42s` instead of `0m`). `time_format` is `24h`
   or `12h`.
 - The tooltip always shows path, start time, duration and note.
 
@@ -180,8 +257,8 @@ Each one can be turned off in `notifications`:
   within `work_hours` (days and times). Shown once per idle period.
 - **long_running** (default 3h): the same activity has been running that long;
   actions Continue, Stop, Open popover. Shown once per run.
-- **after_restart**: the activity that was running before a restart, with a
-  Resume action.
+- **after_restart**, **after_unlock** (durations): open the popover and ask what you did
+  meanwhile (see [above](#after-a-restart-or-unlocking-the-screen)).
 - **offline**: aw-server is unreachable and entries are buffered; once per
   offline period.
 

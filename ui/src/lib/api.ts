@@ -7,6 +7,8 @@ export const api = {
   start: (id: string, note: string | null, source: "popover" | "popover-scroll") =>
     invoke("start_favorite", { id, note, source }),
   stop: (source: "popover" | "popover-scroll") => invoke("stop", { source }),
+  resume: () => invoke("resume"),
+  lastOpened: () => invoke<Opened | null>("last_opened"),
   setNote: (note: string | null) => invoke("set_note", { note }),
   log: (id: string, range: string, note: string | null) => invoke("log_entry", { id, range, note }),
   previewRange: (range: string) => invoke<{ start: string; end: string; text: string }>("preview_range", { range }),
@@ -14,8 +16,34 @@ export const api = {
   openSettings: () => invoke("open_settings"),
 };
 
-export function onOpened(f: (trigger: string) => void): Promise<UnlistenFn> {
-  return listen<{ trigger: string }>("popover:opened", (e) => f(e.payload.trigger));
+/** Why the popover was opened (payload of `popover:opened`). */
+/** Time the user couldn't track (aw-manual not running, screen locked). */
+export interface Gap {
+  reason: "restart" | "unlock";
+  start: string;
+  end: string;
+  minutes: number;
+  seconds: number;
+  /** Retroactive range, null if shorter than a second. */
+  range: string | null;
+  /** The activity before the gap. */
+  last: { id: string; title: string; path: string[]; note: string | null } | null;
+}
+
+export interface Opened {
+  /** Increases with every request; each one is handled once. */
+  seq: number;
+  trigger: string;
+  /** Ask for a note for this favorite, then start it. */
+  favorite?: string;
+  /** Open the note field for the running activity. */
+  note?: boolean;
+  /** Ask what the user did during this gap, then what to continue with. */
+  gap?: Gap;
+}
+
+export function onOpened(f: (opened: Opened) => void): Promise<UnlistenFn> {
+  return listen<Opened>("popover:opened", (e) => f(e.payload));
 }
 
 export function onClosed(f: () => void): Promise<UnlistenFn> {

@@ -36,13 +36,14 @@ notify-rust = "4"
 ashpd = { version = "0.11", default-features = false, features = ["tokio"] }
 futures-util = "0.3"
 x11rb = "0.13"
+zbus = { version = "5", default-features = false, features = ["tokio"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.25"
 core-foundation = "0.10"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_System_StationsAndDesktops", "Win32_UI_WindowsAndMessaging"] }
 
 [features]
 # Serve the bundled UI (instead of the Vite dev server). On by default so a

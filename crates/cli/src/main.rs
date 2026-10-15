@@ -640,7 +640,12 @@ fn status(format: Option<String>, follow: bool, json: bool) -> Result<()> {
     let mut current: Option<Status> = None;
     let mut last_output: Option<String> = None;
     loop {
-        let wait = if seconds {
+        // Below one minute, "1h 23m" shows seconds ("42s") as well.
+        let first_minute = current
+            .as_ref()
+            .and_then(|s| s.running.as_ref())
+            .is_some_and(|r| (Utc::now() - r.start).num_seconds() < 60);
+        let wait = if seconds || first_minute {
             Duration::from_millis(1000 - (Utc::now().timestamp_subsec_millis() as u64).min(999))
         } else {
             Duration::from_secs(60 - (Utc::now().timestamp() % 60) as u64)

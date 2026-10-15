@@ -3,10 +3,10 @@ import { fuzzyScore, leaves, normalize, search } from "./fuzzy";
 import type { Favorite } from "./types";
 
 function leaf(path: string[], id: string): Favorite {
-  return { id, title: path[path.length - 1], path, type: "leaf", kind: "activity", color: null, icon: null, file: "", line: 0, generated: false };
+  return { id, title: path[path.length - 1], path, type: "leaf", kind: "activity", color: null, icon: null, ask_note: false, file: "", line: 0, generated: false };
 }
 function folder(title: string, id: string, children: Favorite[]): Favorite {
-  return { id, title, path: [title], type: "folder", color: null, icon: null, file: "", line: 0, generated: false, children };
+  return { id, title, path: [title], type: "folder", color: null, icon: null, ask_note: false, file: "", line: 0, generated: false, children };
 }
 
 const tree: Favorite[] = [

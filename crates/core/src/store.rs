@@ -193,6 +193,26 @@ impl Store {
         })
     }
 
+    /// When the daemon was last known to be running (see [`Store::set_alive`]).
+    pub fn alive(&self) -> anyhow::Result<Option<DateTime<Utc>>> {
+        let v: Option<String> = self
+            .lock()
+            .query_row("SELECT value FROM kv WHERE key = 'alive'", [], |r| r.get(0))
+            .optional()?;
+        Ok(v.and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+            .map(|t| t.with_timezone(&Utc)))
+    }
+
+    /// Records that the daemon is running (written periodically), so the
+    /// next start knows how long aw-manual was stopped.
+    pub fn set_alive(&self, t: DateTime<Utc>) -> anyhow::Result<()> {
+        self.lock().execute(
+            "INSERT INTO kv (key, value) VALUES ('alive', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![t.to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
     pub fn save_state(&self, state: &PersistedState) -> anyhow::Result<()> {
         let json = serde_json::to_string(state)?;
         self.lock().execute(
@@ -265,6 +285,16 @@ mod tests {
         s.dead_letter(id, &op, "nope").unwrap();
         assert_eq!(s.pending().unwrap(), 1);
         assert_eq!(s.dead_letter_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn alive_roundtrip() {
+        let s = Store::open_in_memory().unwrap();
+        assert_eq!(s.alive().unwrap(), None);
+        let t: DateTime<Utc> = "2026-10-09T08:00:00Z".parse().unwrap();
+        s.set_alive(t).unwrap();
+        s.set_alive(t + chrono::Duration::seconds(15)).unwrap();
+        assert_eq!(s.alive().unwrap(), Some(t + chrono::Duration::seconds(15)));
     }
 
     #[test]

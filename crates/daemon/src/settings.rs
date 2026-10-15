@@ -321,6 +321,7 @@ mod tests {
             kind: None,
             color: None,
             icon: None,
+            ask_note: false,
         };
 
         // Top level: 00-ui.yaml (created).

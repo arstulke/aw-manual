@@ -71,8 +71,11 @@ pub fn format_elapsed(secs: i64, fmt: ElapsedFormat) -> String {
         ElapsedFormat::HoursMinutes => {
             if h > 0 {
                 format!("{h}h {m}m")
-            } else {
+            } else if m > 0 {
                 format!("{m}m")
+            } else {
+                // Below one minute, "0m" says nothing: show the seconds.
+                format!("{s}s")
             }
         }
         ElapsedFormat::Clock => format!("{h}:{m:02}"),
@@ -233,8 +236,9 @@ mod tests {
 
     #[test]
     fn elapsed() {
-        assert_eq!(format_elapsed(0, ElapsedFormat::HoursMinutes), "0m");
-        assert_eq!(format_elapsed(59, ElapsedFormat::HoursMinutes), "0m");
+        assert_eq!(format_elapsed(0, ElapsedFormat::HoursMinutes), "0s");
+        assert_eq!(format_elapsed(42, ElapsedFormat::HoursMinutes), "42s");
+        assert_eq!(format_elapsed(60, ElapsedFormat::HoursMinutes), "1m");
         assert_eq!(format_elapsed(23 * 60, ElapsedFormat::HoursMinutes), "23m");
         assert_eq!(
             format_elapsed(3600 + 23 * 60, ElapsedFormat::HoursMinutes),

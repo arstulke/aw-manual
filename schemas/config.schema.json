@@ -9,7 +9,7 @@
     "duration": {
       "type": "string",
       "pattern": "^\\s*(\\d+(\\.\\d+)?\\s*(ms|s|sec|secs|m|min|mins|h|hr|hrs|d)\\s*)+$",
-      "description": "A duration such as 30s, 15m, 1h30m or 1.5h."
+      "description": "A duration: one or more <number><unit> parts with the units ms, s, m, h, d, e.g. 500ms, 30s, 15m, 1h30m, 1.5h or 1d."
     },
     "optionalDuration": {
       "description": "A duration, or false to disable.",
@@ -100,7 +100,16 @@
       "properties": {
         "idle_reminder": { "$ref": "#/$defs/optionalDuration", "default": "15m" },
         "long_running": { "$ref": "#/$defs/optionalDuration", "default": "3h" },
-        "after_restart": { "type": "boolean", "default": true },
+        "after_restart": {
+          "oneOf": [{ "$ref": "#/$defs/optionalDuration" }, { "const": true }],
+          "default": "1m",
+          "description": "After a (re-)start of aw-manual or the computer: if aw-manual was stopped at least this long, ask what you did meanwhile, then what to continue with; false disables it (true = 1m)."
+        },
+        "after_unlock": {
+          "$ref": "#/$defs/optionalDuration",
+          "default": "1m",
+          "description": "After unlocking the screen: if it was locked at least this long, ask what you did meanwhile, then what to continue with; false disables it."
+        },
         "offline": { "type": "boolean", "default": true },
         "work_hours": {
           "type": "object",
@@ -133,6 +142,11 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "layout": {
+              "enum": ["tree", "levels"],
+              "default": "tree",
+              "description": "tree: all folders expanded, scrolling steps through the leaves only; levels: one folder level at a time."
+            },
             "confirm_with_hotkey": { "type": "boolean", "default": true },
             "dwell_confirm": { "type": "boolean", "default": false },
             "dwell_time": { "$ref": "#/$defs/duration", "default": "2s" },
@@ -142,7 +156,7 @@
               "description": "Closes the popover without input after this time; must be longer than dwell_time."
             },
             "sensitivity": { "type": "number", "exclusiveMinimum": 0, "maximum": 100, "default": 1.0 },
-            "wrap_around": { "type": "boolean", "default": false },
+            "wrap_around": { "type": "boolean", "default": true },
             "open_at_cursor": { "type": "boolean", "default": true },
             "start_at": { "enum": ["running", "first"], "default": "running" },
             "horizontal": {

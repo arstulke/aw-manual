@@ -15,6 +15,7 @@ export interface Favorite {
   kind?: Kind;
   color: Resolved | null;
   icon: Resolved | null;
+  ask_note: boolean;
   file: string;
   line: number;
   generated: boolean;
@@ -63,6 +64,7 @@ export interface Status {
 }
 
 export interface ScrollConfig {
+  layout: "tree" | "levels";
   confirm_with_hotkey: boolean;
   dwell_confirm: boolean;
   dwell_time: string;

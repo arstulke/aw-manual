@@ -11,6 +11,7 @@ const f = (id: string, children?: Favorite[]): Favorite => ({
   icon: null,
   file: "",
   line: 0,
+  ask_note: false,
   generated: false,
   children,
 });

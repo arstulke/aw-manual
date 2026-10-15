@@ -26,7 +26,8 @@ export function formatElapsed(totalSeconds: number, fmt: ElapsedFormat): string 
   const pad = (n: number) => String(n).padStart(2, "0");
   switch (fmt) {
     case "1h 23m":
-      return h > 0 ? `${h}h ${m}m` : `${m}m`;
+      // Below one minute, "0m" says nothing: show the seconds.
+      return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m` : `${s}s`;
     case "1:23":
       return `${h}:${pad(m)}`;
     case "1h 23m 45s":

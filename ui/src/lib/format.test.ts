@@ -11,6 +11,7 @@ describe("format", () => {
   it("elapsed", () => {
     expect(formatElapsed(83 * 60, "1h 23m")).toBe("1h 23m");
     expect(formatElapsed(5 * 60, "1h 23m")).toBe("5m");
+    expect(formatElapsed(42, "1h 23m")).toBe("42s");
     expect(formatElapsed(83 * 60, "1:23")).toBe("1:23");
     expect(formatElapsed(83 * 60 + 5, "1:23:45")).toBe("1:23:05");
     expect(formatElapsed(45, "1h 23m 45s")).toBe("45s");

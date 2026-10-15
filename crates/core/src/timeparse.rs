@@ -11,8 +11,8 @@
 //! | `yesterday 16:00-17:30`         | a range on another day                    |
 //! | `2026-10-09 10:00-11:00`        | a range on a specific date                |
 //!
-//! Clock times may use 24h (`14:30`) or 12h (`2:30pm`) notation; a bare hour
-//! (`10`) means `10:00`. A clock time without a date refers to its most recent
+//! Clock times may use 24h (`14:30`) or 12h (`2:30pm`) notation, optionally
+//! with seconds (`14:30:15`); a bare hour (`10`) means `10:00`. A clock time without a date refers to its most recent
 //! occurrence: if the start lies in the future today, the range is moved to
 //! yesterday (e.g. `23:00-01:00` early in the morning). Ranges must not end
 //! in the future and must not be empty.
@@ -70,21 +70,20 @@ fn parse_clock(s: &str) -> Option<NaiveTime> {
     {
         return None;
     }
-    let (h, m) = match body.split_once([':', '.']) {
-        Some((h, m)) => {
-            if m.len() != 2 || h.is_empty() || h.len() > 2 {
-                return None;
-            }
-            (h.parse::<u32>().ok()?, m.parse::<u32>().ok()?)
+    let parts: Vec<&str> = body.split([':', '.']).collect();
+    let (h, m, sec) = match parts.as_slice() {
+        [h] if !h.is_empty() && h.len() <= 2 => (h.parse::<u32>().ok()?, 0, 0),
+        [h, m] if !h.is_empty() && h.len() <= 2 && m.len() == 2 => {
+            (h.parse::<u32>().ok()?, m.parse::<u32>().ok()?, 0)
         }
-        None => {
-            if body.len() > 2 {
-                return None;
-            }
-            (body.parse::<u32>().ok()?, 0)
-        }
+        [h, m, sec] if !h.is_empty() && h.len() <= 2 && m.len() == 2 && sec.len() == 2 => (
+            h.parse::<u32>().ok()?,
+            m.parse::<u32>().ok()?,
+            sec.parse::<u32>().ok()?,
+        ),
+        _ => return None,
     };
-    if m > 59 {
+    if m > 59 || sec > 59 {
         return None;
     }
     let h = match meridiem {
@@ -106,7 +105,7 @@ fn parse_clock(s: &str) -> Option<NaiveTime> {
             }
         }
     };
-    NaiveTime::from_hms_opt(h, m, 0)
+    NaiveTime::from_hms_opt(h, m, sec)
 }
 
 /// Parses a single point in time (`now`, `-30m`, `9:30`, `yesterday 9:30`,
@@ -350,6 +349,16 @@ mod tests {
         assert_eq!(r("9am-10:30am"), pair("10-09 09:00", "10-09 10:30"));
         assert_eq!(r("12pm-1pm"), pair("10-09 12:00", "10-09 13:00"));
         assert_eq!(r("9.30-10.00"), pair("10-09 09:30", "10-09 10:00"));
+        let (a, b) = parse_range("2026-10-09 10:03:27-10:45:05", &now()).unwrap();
+        assert_eq!(
+            (a, b),
+            (
+                "2026-10-09T08:03:27Z".parse().unwrap(),
+                "2026-10-09T08:45:05Z".parse().unwrap()
+            )
+        );
+        assert!(parse_range("10:03:60-11:00", &now()).is_err());
+        assert!(parse_range("10:03:5-11:00", &now()).is_err());
     }
 
     #[test]

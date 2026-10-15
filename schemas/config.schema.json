@@ -9,7 +9,7 @@
     "duration": {
       "type": "string",
       "pattern": "^\\s*(\\d+(\\.\\d+)?\\s*(ms|s|sec|secs|m|min|mins|h|hr|hrs|d)\\s*)+$",
-      "description": "A duration such as 30s, 15m, 1h30m or 1.5h."
+      "description": "A duration: one or more <number><unit> parts with the units ms, s, m, h, d, e.g. 500ms, 30s, 15m, 1h30m, 1.5h or 1d."
     },
     "optionalDuration": {
       "description": "A duration, or false to disable.",

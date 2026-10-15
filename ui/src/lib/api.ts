@@ -23,7 +23,8 @@ export interface Gap {
   start: string;
   end: string;
   minutes: number;
-  /** Retroactive range, null if shorter than a minute. */
+  seconds: number;
+  /** Retroactive range, null if shorter than a second. */
   range: string | null;
   /** The activity before the gap. */
   last: { id: string; title: string; path: string[]; note: string | null } | null;

@@ -320,7 +320,7 @@ fn spawn_lock_watcher(app: AppHandle, svc: Arc<Svc>) {
                     let gap = Gap::new(GapReason::Unlock, since, now, last);
                     if gap.range.is_none() {
                         tracing::info!(
-                            "screen unlocked after {secs}s; not asking (shorter than a minute)"
+                            "screen unlocked after {secs}s; not asking (shorter than a second)"
                         );
                         continue;
                     }

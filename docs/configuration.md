@@ -111,8 +111,23 @@ openaction:                         # phase 2 (OpenAction plugin)
   toggle_running: stop              # stop | none
 ```
 
-Durations: `500ms`, `30s`, `15m`, `1h30m`, `1.5h`, `1d`. Times of day must be
-quoted (`"08:00"`).
+Times of day must be quoted (`"08:00"`).
+
+### Durations
+
+A duration is one or more `<number><unit>` parts: `500ms`, `30s`, `15m`,
+`1h30m`, `1h 30m`, `1.5h`, `1d`. Units: `ms`, `s` (`sec`), `m` (`min`), `h`
+(`hr`), `d`. A number without a unit is an error. Settings marked "or false"
+can be disabled with `false`.
+
+| Setting | Allowed values |
+|---|---|
+| `server.heartbeat_interval` | `5s` … `10m` |
+| `notifications.idle_reminder`, `notifications.long_running` | longer than 0, or `false` |
+| `notifications.after_restart` | longer than 0, or `false`. aw-manual records every 15 s that it is running, so stops are measured to about 15 s |
+| `notifications.after_unlock` | longer than 0, or `false`. The lock state is checked every 2 s, so shorter locks may go unnoticed |
+| `popover.scroll.dwell_time` | longer than 0 |
+| `popover.scroll.timeout` | longer than `dwell_time` |
 
 ## Favorites files
 

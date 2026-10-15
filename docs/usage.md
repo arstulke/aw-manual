@@ -121,6 +121,7 @@ pick a favorite and press Enter. Supported ranges:
 | `10:00 +45m`, `10:00 for 45m` | start plus duration |
 | `yesterday 16:00-17:30`, `2026-10-09 10:00-11:00` | another day |
 | `9am-10:30am`, `9-10` | 12-hour clock, bare hours |
+| `10:03:27-10:45:05` | with seconds |
 
 A clock time without a date means its most recent occurrence: if the start
 lies in the future today, the range moves to yesterday (`23:00-01:00` early in
@@ -138,16 +139,18 @@ on-site meeting, helping a colleague, a break) is easy to fill in afterwards:
 
 1. **What were you doing?** The popover opens with the gap prefilled as a
    retroactive range ("aw-manual wasn't running from 09:42 to 10:15" or "The
-   screen was locked from …"). Pick a favorite to log the gap, or press Esc to
-   skip it.
-2. **Continue with … from now?** Enter (or Y) starts the activity you just
-   picked; after a restart without a pick, it offers the activity that was
-   running before (resumed with its note).
+   screen was locked from …"). The activity from before the gap is
+   preselected, so Enter logs it. Pick another favorite, or press Esc to skip
+   logging.
+2. **Continue with … from now?** Enter (or Y) continues the activity you just
+   picked. If you skipped step 1, it offers the activity from before the gap:
+   after a restart it is resumed with its note; after unlocking it simply keeps
+   running.
 3. **What are you doing now?** If you answer No (N), pick the activity to start
    from now on. Esc at any step leaves things as they are.
 
 Nothing is recorded unless you pick something. After unlocking, a skipped gap
-leaves the running activity running, as aw-manual never pauses on its own.
+stays part of the running activity, as aw-manual never pauses on its own.
 
 - `notifications.after_restart` (default `1m`): after a (re-)start of
   aw-manual or the computer, ask what you did meanwhile if aw-manual was
@@ -158,6 +161,10 @@ leaves the running activity running, as aw-manual never pauses on its own.
 - `notifications.after_unlock` (default `1m`): after unlocking the screen, ask
   what you did meanwhile if it was locked for at least that long. `false`
   disables it.
+
+Both take any [duration](configuration.md#durations), e.g. `10s`, `1m` or
+`5m`. The prefilled range includes seconds (`2026-10-15 09:42:10-09:42:52`);
+all time ranges accept seconds (`10:03:27-10:45`).
 
 **Screen lock detection.** The screen counts as locked if any source says so:
 

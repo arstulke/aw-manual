@@ -204,17 +204,27 @@
     await enterKeyboard();
     retro = true;
     range = gap.range;
+    // Preselect the activity from before the gap: Enter logs it.
+    if (gap.last) {
+      const id = gap.last.id;
+      if (!expanded.includes(id)) expanded = [...new Set([...expanded, ...ancestorIds(id)])];
+      await tick();
+      const i = kbList.findIndex((r) => r.fav.id === id);
+      if (i !== -1) kbIndex = i;
+    }
     await tick();
     searchEl?.focus();
   }
 
-  /** Esc in step 1: nothing logged. After a restart, offer the last activity. */
+  /**
+   * Esc in step 1: nothing logged. Offer the activity from before the gap
+   * (after unlocking: the one still running), otherwise ask what's next.
+   */
   async function skipGap() {
     if (!prompt) return;
-    const last = prompt.gap.reason === "restart" ? lastActivity(prompt.gap) : null;
+    const last = lastActivity(prompt.gap);
     if (last) await askContinue(last);
-    else if (prompt.gap.reason === "restart") await chooseNow();
-    else await close();
+    else await chooseNow();
   }
 
   /** Step 2: continue with this activity from now? */
@@ -240,7 +250,9 @@
       // The last activity before a restart is resumed as it was (also ad-hoc
       // activities); a favorite picked for the gap starts from now.
       if (next.last && prompt?.gap.reason === "restart") await api.resume();
-      else await api.start(next.id, next.note, "popover");
+      else if (next.last && running?.id === next.id) {
+        // After unlocking: the activity is still running, nothing to change.
+      } else await api.start(next.id, next.note, "popover");
       await close();
     } catch (e) {
       error = errorText(e);
@@ -263,7 +275,7 @@
     const fmt = snap?.tray.time_format ?? "24h";
     const from = formatClock(new Date(gap.start), fmt);
     const to = formatClock(new Date(gap.end), fmt);
-    const len = gap.minutes < 60 ? `${gap.minutes} min` : formatElapsed(gap.minutes * 60, "1h 23m");
+    const len = formatElapsed(gap.seconds, "1h 23m");
     const what = gap.reason === "restart" ? "aw-manual wasn't running" : "The screen was locked";
     return `${what} from ${from} to ${to} (${len}).`;
   }
@@ -862,7 +874,13 @@
       <div class="prompt">
         {#if prompt.step === "gap"}
           <div class="q">{gapText(prompt.gap)} What were you doing?</div>
-          <div class="muted">Pick a favorite to log this time, or press <kbd>Esc</kbd> to skip.</div>
+          <div class="muted">
+            {#if prompt.gap.last}
+              Pick a favorite to log this time (preselected: {prompt.gap.last.path.join(PATH_SEPARATOR)}), or press <kbd>Esc</kbd> to skip.
+            {:else}
+              Pick a favorite to log this time, or press <kbd>Esc</kbd> to skip.
+            {/if}
+          </div>
         {:else if prompt.step === "resume" && prompt.next}
           <div class="q">Continue with {prompt.next.path.join(PATH_SEPARATOR)} from now?</div>
           <div class="buttons">

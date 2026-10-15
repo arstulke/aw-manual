@@ -421,6 +421,7 @@
             <input bind:value={unlockValue} class="short" disabled={!unlockOn} />
           </div>
           <label class="check"><input type="checkbox" bind:checked={form["notifications.offline"]} /> Tell me when entries are being buffered (aw-server unreachable)</label>
+          <p class="hint">Durations: one or more number + unit parts, e.g. 10s, 1m, 15m, 1h30m or 1.5h (units ms, s, m, h, d).</p>
         </section>
         <h3>Working hours (for the reminder)</h3>
         <section>

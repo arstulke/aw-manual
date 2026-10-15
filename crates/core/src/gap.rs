@@ -45,8 +45,10 @@ pub struct Gap {
     pub end: DateTime<Utc>,
     /// Length in whole minutes.
     pub minutes: i64,
-    /// The gap as a retroactive time range (`2026-10-09 10:03-10:45`, local
-    /// time), `None` if it is shorter than a minute (nothing to log then).
+    /// Length in whole seconds.
+    pub seconds: i64,
+    /// The gap as a retroactive time range (`2026-10-09 10:03:27-10:45:05`,
+    /// local time), `None` if it is shorter than a second (nothing to log).
     pub range: Option<String>,
     /// The activity before the gap (restart: the last one; unlock: the running one).
     pub last: Option<GapActivity>,
@@ -59,13 +61,14 @@ impl Gap {
         end: DateTime<Utc>,
         last: Option<GapActivity>,
     ) -> Gap {
-        let minutes = (end - start).num_minutes().max(0);
+        let seconds = (end - start).num_seconds().max(0);
         Gap {
             reason,
             start,
             end,
-            minutes,
-            range: (minutes >= 1).then(|| range_text(start, end, &Local)),
+            minutes: seconds / 60,
+            seconds,
+            range: (seconds >= 1).then(|| range_text(start, end, &Local)),
             last,
         }
     }
@@ -99,13 +102,13 @@ pub fn restart_gap(
 }
 
 /// Formats a period as a range the time parser understands, in local time.
-/// Minutes are truncated, so the range never ends in the future.
+/// Fractions of seconds are truncated, so the range never ends in the future.
 pub fn range_text<Tz: TimeZone>(start: DateTime<Utc>, end: DateTime<Utc>, tz: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
     let (s, e) = (start.with_timezone(tz), end.with_timezone(tz));
-    format!("{}-{}", s.format("%Y-%m-%d %H:%M"), e.format("%H:%M"))
+    format!("{}-{}", s.format("%Y-%m-%d %H:%M:%S"), e.format("%H:%M:%S"))
 }
 
 #[cfg(test)]
@@ -122,12 +125,12 @@ mod tests {
         let tz = FixedOffset::east_opt(2 * 3600).unwrap();
         let (start, end) = (ts("2026-10-09T08:03:27Z"), ts("2026-10-09T08:45:50Z"));
         let r = range_text(start, end, &tz);
-        assert_eq!(r, "2026-10-09 10:03-10:45");
+        assert_eq!(r, "2026-10-09 10:03:27-10:45:50");
         let now = DateTime::parse_from_rfc3339("2026-10-09T10:46:00+02:00").unwrap();
         let parsed = crate::timeparse::parse_range(&r, &now).unwrap();
         assert_eq!(
             parsed,
-            (ts("2026-10-09T08:03:00Z"), ts("2026-10-09T08:45:00Z"))
+            (ts("2026-10-09T08:03:27Z"), ts("2026-10-09T08:45:50Z"))
         );
     }
 
@@ -135,7 +138,7 @@ mod tests {
     fn across_midnight() {
         let tz = FixedOffset::east_opt(0).unwrap();
         let r = range_text(ts("2026-10-08T23:50:00Z"), ts("2026-10-09T00:20:00Z"), &tz);
-        assert_eq!(r, "2026-10-08 23:50-00:20");
+        assert_eq!(r, "2026-10-08 23:50:00-00:20:00");
         let now = DateTime::parse_from_rfc3339("2026-10-09T00:21:00+00:00").unwrap();
         let parsed = crate::timeparse::parse_range(&r, &now).unwrap();
         assert_eq!(
@@ -191,21 +194,28 @@ mod tests {
     }
 
     #[test]
-    fn short_gaps_have_no_range() {
+    fn short_gaps() {
         let g = Gap::new(
-            GapReason::Restart,
+            GapReason::Unlock,
             ts("2026-10-09T08:00:00Z"),
-            ts("2026-10-09T08:00:40Z"),
+            ts("2026-10-09T08:00:00.400Z"),
             None,
         );
-        assert_eq!((g.minutes, g.range), (0, None));
+        assert_eq!((g.seconds, g.range), (0, None));
+        let g = Gap::new(
+            GapReason::Unlock,
+            ts("2026-10-09T08:00:00Z"),
+            ts("2026-10-09T08:00:10Z"),
+            None,
+        );
+        assert_eq!((g.minutes, g.seconds), (0, 10));
+        assert!(g.range.is_some());
         let g = Gap::new(
             GapReason::Unlock,
             ts("2026-10-09T08:00:00Z"),
             ts("2026-10-09T08:42:10Z"),
             None,
         );
-        assert_eq!(g.minutes, 42);
-        assert!(g.range.is_some());
+        assert_eq!((g.minutes, g.seconds), (42, 2530));
     }
 }

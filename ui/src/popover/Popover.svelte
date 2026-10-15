@@ -237,8 +237,14 @@
     note = "";
     noteOpen = false;
     noteFor = null;
+    // Highlight the activity to continue: Enter continues it, or move the
+    // highlight to start another one.
+    if (!expanded.includes(next.id)) expanded = [...new Set([...expanded, ...ancestorIds(next.id)])];
     await tick();
-    listEl?.focus();
+    const i = kbList.findIndex((r) => r.fav.id === next.id);
+    if (i !== -1) kbIndex = i;
+    await tick();
+    searchEl?.focus();
   }
 
   async function continueYes() {
@@ -393,9 +399,8 @@
   /** Abstract navigation commands (scroll wheel, keys, `aw-manual nav`, hotkey). */
   function nav(cmd: NavCommand) {
     if (busy) return;
-    if (prompt?.step === "resume" && (cmd === "confirm" || cmd === "cancel")) {
-      if (cmd === "confirm") continueYes();
-      else close();
+    if (prompt?.step === "resume" && cmd === "cancel") {
+      close();
       return;
     }
     if (mode === "scroll") {
@@ -453,6 +458,7 @@
     const row = kbList[kbIndex];
     if (!row) return;
     if (row.fav.type === "folder") toggle(row.fav.id);
+    else if (prompt?.step === "resume" && row.fav.id === prompt.next?.id) continueYes();
     else startFavorite(row.fav);
   }
 
@@ -508,18 +514,25 @@
   function onKeydown(e: KeyboardEvent) {
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
-    if (prompt?.step === "resume") {
-      if (e.key === "Enter" || key === "y") {
+    // "Continue with …?": Y continues, N asks for another activity, Esc
+    // closes (while the search is empty). Enter starts the highlighted
+    // activity, which is the one to continue unless the highlight was moved.
+    if (prompt?.step === "resume" && !query && !ctrl && !e.altKey && e.target !== noteEl) {
+      if (key === "y") {
         e.preventDefault();
         continueYes();
-      } else if (key === "n" || e.key === "Tab") {
+        return;
+      }
+      if (key === "n") {
         e.preventDefault();
         chooseNow();
-      } else if (e.key === "Escape") {
+        return;
+      }
+      if (e.key === "Escape") {
         e.preventDefault();
         close();
+        return;
       }
-      return;
     }
     if (prompt?.step === "gap" && e.key === "Escape" && !query && e.target !== noteEl) {
       e.preventDefault();
@@ -884,10 +897,11 @@
         {:else if prompt.step === "resume" && prompt.next}
           <div class="q">Continue with {prompt.next.path.join(PATH_SEPARATOR)} from now?</div>
           <div class="buttons">
-            <button class="primary" onclick={continueYes} disabled={busy}>Yes, continue <kbd>Enter</kbd></button>
+            <button class="primary" onclick={continueYes} disabled={busy}>Yes, continue <kbd>Y</kbd></button>
             <button onclick={chooseNow} disabled={busy}>No, something else <kbd>N</kbd></button>
             <button onclick={close} disabled={busy}>Nothing <kbd>Esc</kbd></button>
           </div>
+          <div class="muted">Or pick another activity below and press <kbd>Enter</kbd> to start it instead.</div>
         {:else if prompt.step === "choose"}
           <div class="q">What are you doing now?</div>
         {/if}

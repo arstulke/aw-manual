@@ -142,12 +142,13 @@ on-site meeting, helping a colleague, a break) is easy to fill in afterwards:
    screen was locked from …"). The activity from before the gap is
    preselected, so Enter logs it. Pick another favorite, or press Esc to skip
    logging.
-2. **Continue with … from now?** Enter (or Y) continues the activity you just
-   picked. If you skipped step 1, it offers the activity from before the gap:
+2. **Continue with … from now?** Y continues the activity you just picked. It
+   is also highlighted in the list, so Enter continues it too; move the
+   highlight (or search) and press Enter to start another activity instead. If you skipped step 1, it offers the activity from before the gap:
    after a restart it is resumed with its note; after unlocking it simply keeps
    running.
 3. **What are you doing now?** If you answer No (N), pick the activity to start
-   from now on. Esc at any step leaves things as they are.
+   from now on. Y and N work while the search field is empty. Esc at any step leaves things as they are.
 
 Nothing is recorded unless you pick something. After unlocking, a skipped gap
 stays part of the running activity, as aw-manual never pauses on its own.

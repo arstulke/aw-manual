@@ -140,7 +140,7 @@ Opens via global hotkey, tray click or `aw-manual popover`.
 - **Fuzzy search** across all favorites including their path ("acm web dev" → *ACME › Website › Development*); results are leaves only
 - **Fully keyboard-operable** (arrow keys, Enter = start, Esc = close, shortcut for stop, shortcut for note)
 - Shows the **running activity** with duration and a stop action
-- Favorites list in **fixed, configured order**, hierarchically expandable/collapsible
+- Favorites list in **fixed, configured order**, the whole tree expanded with folders as pinned headings; only leaves can be highlighted
 - **Retroactive mode:** relative or absolute time input, e.g. `-30m`, `10:00-11:15`, `since 9:30`
 - Optional note field; while an activity is running, a new note creates a new activity (see 4.3)
 

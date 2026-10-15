@@ -9,15 +9,16 @@ use aw_manual_core::ipc::NavCommand;
 use aw_manual_core::model::Source;
 use serde::Serialize;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
-    WindowEvent,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
 };
 
 use crate::app::Svc;
 
 pub const LABEL: &str = "popover";
 const WIDTH: f64 = 500.0;
-const HEIGHT: f64 = 460.0;
+/// Tall enough for the questions after a restart or unlock plus several rows.
+const HEIGHT: f64 = 580.0;
 
 #[derive(Default)]
 struct State {
@@ -143,6 +144,11 @@ pub fn show(app: &AppHandle, trigger: &str) -> tauri::Result<()> {
 
 pub fn show_with(app: &AppHandle, mut opened: Opened) -> tauri::Result<()> {
     let w = window(app)?;
+    // Some window managers (e.g. GTK client-side decorations on Wayland) add
+    // their frame to the size each time a hidden window is shown again.
+    if let Err(e) = w.set_size(LogicalSize::new(WIDTH, HEIGHT)) {
+        tracing::debug!("cannot reset the popover size: {e}");
+    }
     let open_at_cursor = app
         .state::<std::sync::Arc<Svc>>()
         .config()

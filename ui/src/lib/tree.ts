@@ -1,26 +1,5 @@
 import type { Favorite } from "./types";
 
-/** A visible row of the expandable favorites tree (keyboard mode). */
-export interface Row {
-  fav: Favorite;
-  depth: number;
-  expanded: boolean;
-}
-
-/** Rows in configured order; children only for expanded folders. */
-export function visibleRows(roots: Favorite[], expanded: ReadonlySet<string>): Row[] {
-  const out: Row[] = [];
-  const walk = (nodes: Favorite[], depth: number) => {
-    for (const fav of nodes) {
-      const isOpen = fav.type === "folder" && expanded.has(fav.id);
-      out.push({ fav, depth, expanded: isOpen });
-      if (isOpen) walk(fav.children ?? [], depth + 1);
-    }
-  };
-  walk(roots, 0);
-  return out;
-}
-
 /** ID of the parent folder (IDs are hierarchical: "acme/website/dev" → "acme/website"). */
 export function parentId(id: string): string | null {
   const i = id.lastIndexOf("/");
@@ -32,4 +11,21 @@ export function ancestorIds(id: string): string[] {
   const out: string[] = [];
   for (let p = parentId(id); p !== null; p = parentId(p)) out.unshift(p);
   return out;
+}
+
+/**
+ * "Back" over leaves in tree order (keyboard mode): the first leaf of the
+ * current folder, or of the previous folder when already there.
+ */
+export function backIndex(leaves: Favorite[], index: number): number {
+  if (!leaves[index]) return index;
+  const group = (i: number) => parentId(leaves[i].id) ?? "";
+  const g = group(index);
+  let start = index;
+  while (start > 0 && group(start - 1) === g) start--;
+  if (start !== index || start === 0) return start;
+  let i = start - 1;
+  const prev = group(i);
+  while (i > 0 && group(i - 1) === prev) i--;
+  return i;
 }

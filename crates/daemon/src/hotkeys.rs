@@ -149,11 +149,23 @@ mod portal {
     //! XDG GlobalShortcuts portal (KDE Plasma, GNOME 48+, Hyprland with xdg-desktop-portal-hyprland, …).
 
     use super::*;
-    use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut};
-    use futures_util::StreamExt;
+    use std::time::Duration;
 
-    static TASK: Mutex<Option<tauri::async_runtime::JoinHandle<()>>> = Mutex::new(None);
+    use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut};
+    use ashpd::desktop::Session;
+    use futures_util::StreamExt;
+    use tokio::sync::Notify;
+
+    /// The registration task and the signal that stops it. Stopping (instead
+    /// of aborting) lets it close its portal session: a leftover session that
+    /// holds the same shortcuts can make the portal reject the next binding.
+    static TASK: Mutex<Option<(tauri::async_runtime::JoinHandle<()>, Arc<Notify>)>> =
+        Mutex::new(None);
     static REGISTERED: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+
+    /// Waits between registration attempts. The portal (or its backend) is
+    /// often not ready yet when the daemon starts with the graphical session.
+    const RETRY_DELAYS: [u64; 7] = [1, 2, 4, 8, 15, 30, 60];
 
     /// Converts `Ctrl+Alt+Space` to the portal's trigger format `CTRL+ALT+space`.
     pub fn portal_trigger(hotkey: &str) -> String {
@@ -179,22 +191,58 @@ mod portal {
     }
 
     pub fn apply(app: AppHandle, bindings: Vec<(String, Action)>) {
-        if let Some(t) = TASK.lock().unwrap().take() {
-            t.abort();
-        }
-        if bindings.is_empty() {
-            return;
-        }
+        let previous = TASK.lock().unwrap().take();
+        let stop = Arc::new(Notify::new());
+        let stop2 = stop.clone();
         let task = tauri::async_runtime::spawn(async move {
-            if let Err(e) = run(&app, bindings).await {
+            if let Some((handle, stop)) = previous {
+                stop.notify_one();
+                let _ = handle.await;
+            }
+            if !bindings.is_empty() {
+                register(&app, &bindings, &stop2).await;
+            }
+        });
+        *TASK.lock().unwrap() = Some((task, stop));
+    }
+
+    /// Registers the shortcuts, retrying while the portal fails, and binds
+    /// them again when the portal ends the session.
+    async fn register(app: &AppHandle, bindings: &[(String, Action)], stop: &Notify) {
+        let mut delays = RETRY_DELAYS.iter();
+        loop {
+            let mut bound = false;
+            let reason = match run(app, bindings, stop, &mut bound).await {
+                Ok(Ended::Stopped) => return,
+                Ok(Ended::Closed) => "the portal closed the session".to_string(),
+                Err(e) => e.to_string(),
+            };
+            if bound {
+                delays = RETRY_DELAYS.iter();
+            }
+            let Some(&secs) = delays.next() else {
                 let msg = format!(
-                    "global shortcuts portal unavailable ({e}); bind keys in your compositor to `aw-manual popover`, `aw-manual stop`, …"
+                    "global shortcuts portal unavailable ({reason}); bind keys in your compositor to `aw-manual popover`, `aw-manual stop`, …"
                 );
                 tracing::warn!("{msg}");
                 app.state::<HotkeyErrors>().0.lock().unwrap().push(msg);
+                return;
+            };
+            tracing::info!(
+                "cannot register hotkeys via the global shortcuts portal ({reason}), retrying in {secs}s"
+            );
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(secs)) => {}
+                _ = stop.notified() => return,
             }
-        });
-        *TASK.lock().unwrap() = Some(task);
+        }
+    }
+
+    enum Ended {
+        /// A newer configuration replaces the shortcuts.
+        Stopped,
+        /// The portal ended the session (or its signals).
+        Closed,
     }
 
     /// Unsandboxed apps have no app ID the portal can derive, and some backends
@@ -216,10 +264,33 @@ mod portal {
             .await;
     }
 
-    async fn run(app: &AppHandle, bindings: Vec<(String, Action)>) -> ashpd::Result<()> {
+    /// Binds the shortcuts in a new portal session and handles their
+    /// activations until stopped or the session ends; then closes the session.
+    async fn run(
+        app: &AppHandle,
+        bindings: &[(String, Action)],
+        stop: &Notify,
+        bound: &mut bool,
+    ) -> ashpd::Result<Ended> {
         register_host_app(app).await;
         let portal = GlobalShortcuts::new().await?;
         let session = portal.create_session().await?;
+        let result = serve(app, bindings, stop, bound, &portal, &session).await;
+        if let Err(e) = session.close().await {
+            tracing::debug!("cannot close the global shortcuts portal session: {e}");
+        }
+        result
+    }
+
+    async fn serve(
+        app: &AppHandle,
+        bindings: &[(String, Action)],
+        stop: &Notify,
+        bound: &mut bool,
+        portal: &GlobalShortcuts<'_>,
+        session: &Session<'_, GlobalShortcuts<'_>>,
+    ) -> ashpd::Result<Ended> {
+        let mut closed = session.receive_closed().await?;
         let shortcuts: Vec<NewShortcut> = bindings
             .iter()
             .map(|(h, a)| {
@@ -227,21 +298,27 @@ mod portal {
                     .preferred_trigger(Some(portal_trigger(h).as_str()))
             })
             .collect();
-        portal
-            .bind_shortcuts(&session, &shortcuts, None)
-            .await?
-            .response()?;
+        tokio::select! {
+            r = portal.bind_shortcuts(session, &shortcuts, None) => r?.response()?,
+            _ = stop.notified() => return Ok(Ended::Stopped),
+        };
+        *bound = true;
         tracing::info!("hotkeys registered via the global shortcuts portal");
         let actions: HashMap<String, Action> =
-            bindings.into_iter().map(|(_, a)| (a.id(), a)).collect();
+            bindings.iter().map(|(_, a)| (a.id(), a.clone())).collect();
         let mut activated = portal.receive_activated().await?;
-        while let Some(event) = activated.next().await {
-            if let Some(action) = actions.get(event.shortcut_id()) {
-                trigger(app, action);
+        loop {
+            tokio::select! {
+                event = activated.next() => {
+                    let Some(event) = event else { return Ok(Ended::Closed) };
+                    if let Some(action) = actions.get(event.shortcut_id()) {
+                        trigger(app, action);
+                    }
+                }
+                _ = closed.next() => return Ok(Ended::Closed),
+                _ = stop.notified() => return Ok(Ended::Stopped),
             }
         }
-        drop(session);
-        Ok(())
     }
 
     #[cfg(test)]

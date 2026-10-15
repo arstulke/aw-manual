@@ -111,3 +111,10 @@ kbd {
   padding: 0 4px;
   background: var(--bg-soft);
 }
+
+/* Key hints on accent-colored buttons: tinted with the button's text color. */
+button.primary kbd {
+  background: color-mix(in srgb, var(--accent-fg) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent-fg) 45%, transparent);
+  color: inherit;
+}

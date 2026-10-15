@@ -85,16 +85,18 @@ need the keyboard.
 ### Keyboard mode
 
 Typing any letter switches to keyboard mode and searches; **Tab** switches to
-the favorites tree (all folders expanded, unless `layout: levels`).
+the favorites tree. Like the tree layout of scroll mode, it shows the whole
+tree expanded: folders are headings that stay pinned at the top, so the
+hierarchy of the highlighted favorite is always visible, and only leaves can
+be highlighted.
 
 | Key | Action |
 |---|---|
 | typing | fuzzy search over all favorites and their path (`acm web dev`); results are leaves only |
-| ↑ / ↓, PgUp / PgDn | move the highlight |
+| ↑ / ↓, PgUp / PgDn | move the highlight through the leaves |
 | scroll wheel | move the highlight through the leaves (search results or tree); confirm with Enter, a click, or the popover hotkey |
-| Enter | start the highlighted favorite (or open/close a folder in the tree) |
+| Enter | start the highlighted favorite |
 | Shift+Enter, right click | ask for a note, then start the favorite with it (both also work in scroll mode) |
-| → / ← | expand / collapse folders (tree, empty search) |
 | Esc | clear the search, then close |
 | Ctrl+N | note field |
 | Ctrl+R | retroactive mode (time range field) |

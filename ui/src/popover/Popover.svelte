@@ -2,9 +2,9 @@
   import { onMount, tick } from "svelte";
   import { api, errorText, onClosed, onNav, onOpened, onStateChanged, type Gap, type Opened } from "../lib/api";
   import { formatClock, formatElapsed, iconGlyph, parseDuration, PATH_SEPARATOR } from "../lib/format";
-  import { search } from "../lib/fuzzy";
+  import { leaves, search } from "../lib/fuzzy";
   import { DrillDown, ExpandedTree, type NavItem, type ScrollNav } from "../lib/nav";
-  import { ancestorIds, parentId, visibleRows, type Row } from "../lib/tree";
+  import { backIndex } from "../lib/tree";
   import type { Favorite, NavCommand, Snapshot } from "../lib/types";
   import { WheelSteps } from "../lib/wheel";
 
@@ -31,7 +31,6 @@
   let error = $state("");
   let busy = $state(false);
   let now = $state(Date.now());
-  let expanded = $state<string[]>([]);
   let kbIndex = $state(0);
   let navVersion = $state(0);
   let dwellArmed = $state(false);
@@ -51,8 +50,13 @@
   const dwellMs = $derived(snap ? parseDuration(snap.scroll.dwell_time) : 2000);
   const timeoutMs = $derived(snap ? parseDuration(snap.scroll.timeout) : 10000);
   const results = $derived(snap && query.trim() ? search(snap.favorites, query) : []);
-  const rows = $derived<Row[]>(snap ? visibleRows(snap.favorites, new Set(expanded)) : []);
-  const kbList = $derived<Row[]>(query.trim() ? results.map((fav) => ({ fav, depth: 0, expanded: false })) : rows);
+  /**
+   * The leaves keyboard mode moves through: the search results, or all leaves
+   * of the tree in configured order (folders are headings, not selectable).
+   */
+  const kbList = $derived<Favorite[]>(query.trim() ? results : snap ? leaves(snap.favorites) : []);
+  /** Index of each leaf in kbList (tree rendering). */
+  const kbIndexOf = $derived(new Map(kbList.map((fav, i) => [fav.id, i] as [string, number])));
   const navItems = $derived.by<NavItem[]>(() => {
     void navVersion;
     return drill.items();
@@ -64,13 +68,17 @@
   /** Height of a heading row; sticky headings stack by depth. */
   const HEADING_PX = 24;
 
-  function rowStyle(item: NavItem): string | undefined {
-    if (item.kind === "back" || item.kind === "stop" || item.kind === "cancel" || !item.depth) {
-      return item.kind === "heading" ? `top: 0; z-index: 20` : undefined;
-    }
-    const pad = `padding-left: ${10 + item.depth * 18}px`;
-    if (item.kind === "heading") return `${pad}; top: ${item.depth * HEADING_PX}px; z-index: ${20 - item.depth}`;
+  /** Indentation of a tree row; sticky headings stack by depth. */
+  function treeStyle(kind: "heading" | "leaf", depth: number): string | undefined {
+    if (!depth) return kind === "heading" ? `top: 0; z-index: 20` : undefined;
+    const pad = `padding-left: ${10 + depth * 18}px`;
+    if (kind === "heading") return `${pad}; top: ${depth * HEADING_PX}px; z-index: ${20 - depth}`;
     return pad;
+  }
+
+  function rowStyle(item: NavItem): string | undefined {
+    if (item.kind === "back" || item.kind === "stop" || item.kind === "cancel" || item.kind === "folder") return undefined;
+    return treeStyle(item.kind, item.depth ?? 0);
   }
 
   const navIndex = $derived.by(() => {
@@ -80,7 +88,7 @@
   const highlightedPath = $derived.by(() => {
     void navVersion;
     if (mode === "scroll") return drill.highlightedPath();
-    return kbList[kbIndex]?.fav.path ?? [];
+    return kbList[kbIndex]?.path ?? [];
   });
   const source = $derived(mode === "scroll" ? "popover-scroll" : "popover");
 
@@ -151,7 +159,6 @@
     preview = null;
     error = "";
     busy = false;
-    expanded = [];
     kbIndex = 0;
     await refresh();
     if (!snap) return;
@@ -205,15 +212,7 @@
     retro = true;
     range = gap.range;
     // Preselect the activity from before the gap: Enter logs it.
-    if (gap.last) {
-      const id = gap.last.id;
-      if (!expanded.includes(id)) expanded = [...new Set([...expanded, ...ancestorIds(id)])];
-      await tick();
-      const i = kbList.findIndex((r) => r.fav.id === id);
-      if (i !== -1) kbIndex = i;
-    }
-    await tick();
-    searchEl?.focus();
+    if (gap.last) highlight(gap.last.id);
   }
 
   /**
@@ -238,13 +237,10 @@
     noteOpen = false;
     noteFor = null;
     // Highlight the activity to continue: Enter continues it, or move the
-    // highlight to start another one.
-    if (!expanded.includes(next.id)) expanded = [...new Set([...expanded, ...ancestorIds(next.id)])];
-    await tick();
-    const i = kbList.findIndex((r) => r.fav.id === next.id);
-    if (i !== -1) kbIndex = i;
-    await tick();
-    searchEl?.focus();
+    // highlight to start another one. Switch first, since entering keyboard
+    // mode highlights the item from scroll mode.
+    await enterKeyboard();
+    highlight(next.id);
   }
 
   async function continueYes() {
@@ -446,7 +442,7 @@
         activateKeyboard();
         break;
       case "back":
-        collapseOrParent();
+        if (!query.trim()) kbIndex = backIndex(kbList, kbIndex);
         break;
       case "cancel":
         close();
@@ -455,39 +451,18 @@
   }
 
   function activateKeyboard() {
-    const row = kbList[kbIndex];
-    if (!row) return;
-    if (row.fav.type === "folder") toggle(row.fav.id);
-    else if (prompt?.step === "resume" && row.fav.id === prompt.next?.id) continueYes();
-    else startFavorite(row.fav);
+    const fav = kbList[kbIndex];
+    if (!fav) return;
+    if (prompt?.step === "resume" && fav.id === prompt.next?.id) continueYes();
+    else startFavorite(fav);
   }
 
-  /** IDs of all folders (the tree layout shows everything expanded). */
-  function allFolderIds(nodes: Favorite[]): string[] {
-    return nodes.flatMap((f) => (f.type === "folder" ? [f.id, ...allFolderIds(f.children ?? [])] : []));
-  }
-
-  function toggle(id: string) {
-    expanded = expanded.includes(id) ? expanded.filter((x) => x !== id) : [...expanded, id];
-  }
-
-  function expandOrChild() {
-    const row = kbList[kbIndex];
-    if (!row || row.fav.type !== "folder" || query.trim()) return;
-    if (!row.expanded) toggle(row.fav.id);
-    else kbIndex = Math.min(kbIndex + 1, kbList.length - 1);
-  }
-
-  function collapseOrParent() {
-    const row = kbList[kbIndex];
-    if (!row || query.trim()) return;
-    if (row.fav.type === "folder" && row.expanded) {
-      toggle(row.fav.id);
-      return;
-    }
-    const p = parentId(row.fav.id);
-    const i = p ? kbList.findIndex((r) => r.fav.id === p) : -1;
-    if (i !== -1) kbIndex = i;
+  /** Highlights a leaf in keyboard mode, if it is in the list. */
+  function highlight(id: string): boolean {
+    const i = kbIndexOf.get(id);
+    if (i === undefined) return false;
+    kbIndex = i;
+    return true;
   }
 
   /** Switches to keyboard mode (search, tree, note, retroactive entries). */
@@ -495,16 +470,11 @@
     if (mode !== "keyboard") {
       mode = "keyboard";
       clearTimers();
-      // Continue where scroll mode was: open its folders and highlight the item.
+      // Continue where scroll mode was: highlight its leaf, or the running one.
       const item = drill.current();
-      const id = item.kind === "folder" || item.kind === "leaf" ? item.fav.id : running?.id;
-      if (snap?.scroll.layout !== "levels") expanded = allFolderIds(snap?.favorites ?? []);
-      if (id) {
-        if (snap?.scroll.layout === "levels") expanded = ancestorIds(id);
-        await tick();
-        const i = rows.findIndex((r) => r.fav.id === id);
-        kbIndex = i === -1 ? 0 : i;
-      }
+      await tick();
+      kbIndex = 0;
+      if (!(item.kind === "leaf" && highlight(item.fav.id)) && running) highlight(running.id);
     }
     if (initial !== undefined) query = initial;
     await tick();
@@ -658,22 +628,10 @@
       case "Enter":
         e.preventDefault();
         if (e.shiftKey) {
-          const row = kbList[kbIndex];
-          if (row) askNote(row.fav);
+          const fav = kbList[kbIndex];
+          if (fav) askNote(fav);
         } else {
           nav("confirm");
-        }
-        break;
-      case "ArrowRight":
-        if (!query) {
-          e.preventDefault();
-          expandOrChild();
-        }
-        break;
-      case "ArrowLeft":
-        if (!query) {
-          e.preventDefault();
-          collapseOrParent();
         }
         break;
       case "Escape":
@@ -691,16 +649,10 @@
   /** Wheel in keyboard mode: moves the highlight through the leaves (search results or tree). */
   function wheelKeyboard(dir: 1 | -1) {
     const n = kbList.length;
-    const wrap = snap?.scroll.wrap_around ?? true;
-    for (let k = 1; k < n; k++) {
-      const i = kbIndex + dir * k;
-      if (!wrap && (i < 0 || i >= n)) return;
-      const j = ((i % n) + n) % n;
-      if (kbList[j].fav.type === "leaf") {
-        kbIndex = j;
-        return;
-      }
-    }
+    if (n === 0) return;
+    const i = kbIndex + dir;
+    if (i >= 0 && i < n) kbIndex = i;
+    else if (snap?.scroll.wrap_around ?? true) kbIndex = (i + n) % n;
   }
 
   function onWheel(e: WheelEvent) {
@@ -840,6 +792,57 @@
 </li>
 {/snippet}
 
+{#snippet kbRow(fav: Favorite, i: number, depth: number)}
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<li
+  role="option"
+  aria-selected={i === kbIndex}
+  class:hl={i === kbIndex}
+  class="leaf"
+  style={query.trim() ? undefined : treeStyle("leaf", depth)}
+  data-depth={query.trim() ? undefined : depth}
+  onclick={() => clickRow(i)}
+  oncontextmenu={(e) => {
+    e.preventDefault();
+    askNote(fav);
+  }}
+>
+  <span class="dot small" style={`background: ${dot(fav)}`}></span>
+  <span class="icon">{iconGlyph(fav.icon?.value)}</span>
+  <span class="label">
+    {#if query.trim()}
+      {#if fav.path.length > 1}<span class="muted">{fav.path.slice(0, -1).join(PATH_SEPARATOR) + PATH_SEPARATOR}</span>{/if}{fav.title}
+    {:else}
+      {fav.title}
+    {/if}
+  </span>
+  {#if fav.ask_note}<span class="tag" title="Asks for a note">note</span>{/if}
+  {#if fav.id === running?.id}<span class="tag">running</span>{/if}
+  {#if fav.kind === "status"}<span class="tag">status</span>{/if}
+</li>
+{/snippet}
+
+<!-- Keyboard mode tree: folders are sticky headings, only leaves can be highlighted. -->
+{#snippet kbBranch(nodes: Favorite[], depth: number)}
+  {#each nodes as f (f.id)}
+    {#if f.type === "folder"}
+      <li class="group" role="presentation">
+        <ul role="group">
+          <li class="heading" role="presentation" style={treeStyle("heading", depth)}>
+            <span class="dot small" style={`background: ${dot(f)}`}></span>
+            <span class="icon">{iconGlyph(f.icon?.value)}</span>
+            <span class="label">{f.title}</span>
+          </li>
+          {@render kbBranch(f.children ?? [], depth + 1)}
+        </ul>
+      </li>
+    {:else}
+      {@const i = kbIndexOf.get(f.id) ?? -1}
+      {#if i !== -1}{@render kbRow(f, i, depth)}{/if}
+    {/if}
+  {/each}
+{/snippet}
+
 {#snippet branch(nodes: Favorite[])}
   {#each nodes as f (f.id)}
     {#if f.type === "folder"}
@@ -942,30 +945,16 @@
       {#each navItems as item, i (i + ":" + (item.kind === "folder" || item.kind === "leaf" || item.kind === "heading" ? item.fav.id : item.kind))}
         {@render navRow(item, i)}
       {/each}
-    {:else}
-      {#each kbList as row, i (row.fav.id)}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <li role="option" aria-selected={i === kbIndex} class:hl={i === kbIndex} class={row.fav.type} style={`padding-left: ${10 + row.depth * 18}px`} onclick={() => clickRow(i)} oncontextmenu={(e) => {
-            e.preventDefault();
-            askNote(row.fav);
-          }}>
-          {#if row.fav.type === "folder"}<span class="chev tree">{row.expanded ? "▾" : "▸"}</span>{/if}
-          <span class="dot small" style={`background: ${dot(row.fav)}`}></span>
-          <span class="icon">{iconGlyph(row.fav.icon?.value)}</span>
-          <span class="label">
-            {#if query.trim()}
-              {#if row.fav.path.length > 1}<span class="muted">{row.fav.path.slice(0, -1).join(PATH_SEPARATOR) + PATH_SEPARATOR}</span>{/if}{row.fav.title}
-            {:else}
-              {row.fav.title}
-            {/if}
-          </span>
-          {#if row.fav.ask_note}<span class="tag" title="Asks for a note">note</span>{/if}
-          {#if row.fav.id === running?.id}<span class="tag">running</span>{/if}
-          {#if row.fav.kind === "status"}<span class="tag">status</span>{/if}
-        </li>
+    {:else if query.trim()}
+      {#each kbList as fav, i (fav.id)}
+        {@render kbRow(fav, i, 0)}
       {:else}
-        <li class="empty muted" role="option" aria-selected="false">{query.trim() ? "No matching favorite" : "No favorites defined – add some in the settings"}</li>
+        <li class="empty muted" role="option" aria-selected="false">No matching favorite</li>
       {/each}
+    {:else if kbList.length > 0}
+      {@render kbBranch(snap?.favorites ?? [], 0)}
+    {:else}
+      <li class="empty muted" role="option" aria-selected="false">No favorites defined – add some in the settings</li>
     {/if}
   </ul>
 
@@ -1173,9 +1162,6 @@
   }
   .chev {
     color: var(--fg-soft);
-  }
-  .chev.tree {
-    width: 1em;
   }
   .tag {
     font-size: 11px;

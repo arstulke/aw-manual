@@ -114,6 +114,8 @@
   let idleValue = $state("15m");
   let longOn = $state(true);
   let longValue = $state("3h");
+  let restartOn = $state(true);
+  let restartValue = $state("1m");
   let unlockOn = $state(true);
   let unlockValue = $state("1m");
 
@@ -133,6 +135,9 @@
         const unlock = data.config.notifications.after_unlock;
         unlockOn = unlock !== false;
         unlockValue = unlock === false ? "1m" : unlock;
+        const restart = data.config.notifications.after_restart;
+        restartOn = restart !== false;
+        restartValue = restart === false ? "1m" : restart;
       }
     } catch (e) {
       loadError = errorText(e);
@@ -144,6 +149,7 @@
     f["notifications.idle_reminder"] = idleOn ? idleValue : false;
     f["notifications.long_running"] = longOn ? longValue : false;
     f["notifications.after_unlock"] = unlockOn ? unlockValue : false;
+    f["notifications.after_restart"] = restartOn ? restartValue : false;
     const out: { path: string[]; value: any }[] = [];
     for (const [k, v] of Object.entries(f)) {
       if (JSON.stringify(v) !== JSON.stringify(original[k])) out.push({ path: k.split("."), value: v });
@@ -180,6 +186,9 @@
       const unlock = data.config.notifications.after_unlock;
       unlockOn = unlock !== false;
       unlockValue = unlock === false ? "1m" : unlock;
+      const restart = data.config.notifications.after_restart;
+      restartOn = restart !== false;
+      restartValue = restart === false ? "1m" : restart;
     }
   }
 
@@ -403,9 +412,12 @@
             <label class="check"><input type="checkbox" bind:checked={longOn} /> Notify when the same activity has been running for</label>
             <input bind:value={longValue} class="short" disabled={!longOn} />
           </div>
-          <label class="check"><input type="checkbox" bind:checked={form["notifications.after_restart"]} /> After a restart, ask what I did meanwhile, then whether to continue with it</label>
           <div class="row">
-            <label class="check"><input type="checkbox" bind:checked={unlockOn} /> After unlocking the screen, ask the same if it was locked for at least</label>
+            <label class="check"><input type="checkbox" bind:checked={restartOn} /> After a (re-)start, ask what I did meanwhile if aw-manual was stopped for at least</label>
+            <input bind:value={restartValue} class="short" disabled={!restartOn} />
+          </div>
+          <div class="row">
+            <label class="check"><input type="checkbox" bind:checked={unlockOn} /> After unlocking the screen, ask what I did meanwhile if it was locked for at least</label>
             <input bind:value={unlockValue} class="short" disabled={!unlockOn} />
           </div>
           <label class="check"><input type="checkbox" bind:checked={form["notifications.offline"]} /> Tell me when entries are being buffered (aw-server unreachable)</label>

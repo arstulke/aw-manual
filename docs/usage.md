@@ -149,13 +149,36 @@ on-site meeting, helping a colleague, a break) is easy to fill in afterwards:
 Nothing is recorded unless you pick something. After unlocking, a skipped gap
 leaves the running activity running, as aw-manual never pauses on its own.
 
-- `notifications.after_restart` (default on) asks after aw-manual starts and
-  finds an activity that was still running when it stopped (reboot, crash).
-- `notifications.after_unlock` (default `1m`) asks after unlocking the screen
-  when it was locked at least that long; `false` disables it. Detection:
-  logind's `LockedHint` or the screen saver D-Bus interface on Linux (GNOME,
-  KDE and lockers that report to logind), the lock screen on Windows and
-  macOS.
+- `notifications.after_restart` (default `1m`): after a (re-)start of
+  aw-manual or the computer, ask what you did meanwhile if aw-manual was
+  stopped for at least that long. The daemon records every 15 s that it is
+  running, so quitting and starting it again works the same as a reboot or a
+  crash. After a shorter stop, it only offers to continue the activity that was
+  running. `false` disables it.
+- `notifications.after_unlock` (default `1m`): after unlocking the screen, ask
+  what you did meanwhile if it was locked for at least that long. `false`
+  disables it.
+
+**Screen lock detection.** The screen counts as locked if any source says so:
+
+| Platform | Sources |
+|---|---|
+| Linux | logind's `LockedHint` of your sessions (GNOME, KDE, lockers started via `loginctl lock-session` that report to logind); the screen saver D-Bus services (`org.freedesktop.ScreenSaver`, GNOME, Cinnamon, MATE, Xfce); a running locker process (`hyprlock`, `swaylock`, `gtklock`, `waylock`, `i3lock`, `xsecurelock`, `slock`, `physlock`, `xlock`) |
+| Windows | the lock screen (input desktop) |
+| macOS | `CGSSessionScreenIsLocked` |
+
+If the prompt doesn't appear after unlocking:
+
+1. Run `aw-manual-daemon --check-lock` in a terminal (a running daemon can
+   stay running), lock the screen for a few seconds and unlock it. It prints
+   every source whenever something changes; one of them must say `locked`
+   while the screen is locked. If none does, your locker isn't covered:
+   please report which one you use.
+2. Look at the log (`~/.local/share/aw-manual/logs/` on Linux, see
+   [Configuration](configuration.md#locations)). The daemon logs at `info`
+   level which sources it found at startup, `screen locked (detected by: …)`,
+   and on unlock why it asks or not (`not asking (minimum 1m)`, `prompt
+   disabled`, …). The restart prompt logs `restart prompt: …` the same way.
 
 ## Tray / menu bar
 
@@ -225,7 +248,7 @@ Each one can be turned off in `notifications`:
   within `work_hours` (days and times). Shown once per idle period.
 - **long_running** (default 3h): the same activity has been running that long;
   actions Continue, Stop, Open popover. Shown once per run.
-- **after_restart**, **after_unlock**: open the popover and ask what you did
+- **after_restart**, **after_unlock** (durations): open the popover and ask what you did
   meanwhile (see [above](#after-a-restart-or-unlocking-the-screen)).
 - **offline**: aw-server is unreachable and entries are buffered; once per
   offline period.

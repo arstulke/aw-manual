@@ -80,8 +80,8 @@ tray:
 notifications:
   idle_reminder: 15m                # false to disable
   long_running: 3h                  # false to disable
-  after_restart: true               # ask what you did while aw-manual wasn't running
-  after_unlock: 1m                  # ... while the screen was locked (at least 1m); false to disable
+  after_restart: 1m                 # after a (re-)start: ask what you did if aw-manual was stopped at least 1m; false to disable
+  after_unlock: 1m                  # after unlocking: ask what you did if the screen was locked at least 1m; false to disable
   offline: true
   work_hours:                       # for the idle reminder
     days: [mon, tue, wed, thu, fri]

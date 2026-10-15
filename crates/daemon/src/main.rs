@@ -7,6 +7,7 @@
 //! Options:
 //! - `--background`: start without showing the popover (used by autostart and the CLI)
 //! - `--headless`: run without any UI (IPC, tracking and writing only)
+//! - `--check-lock`: print the screen lock detection live (debugging)
 
 mod app;
 mod commands;
@@ -43,11 +44,16 @@ fn main() {
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "aw-manual-daemon {}\n\nUsage: aw-manual-daemon [--background] [--headless]\n\n  \
+            "aw-manual-daemon {}\n\nUsage: aw-manual-daemon [--background] [--headless] [--check-lock]\n\n  \
              --background  start without showing the popover\n  \
-             --headless    run without tray, popover and hotkeys (IPC only)",
+             --headless    run without tray, popover and hotkeys (IPC only)\n  \
+             --check-lock  print the screen lock detection live, for debugging",
             env!("CARGO_PKG_VERSION")
         );
+        return;
+    }
+    if args.iter().any(|a| a == "--check-lock") {
+        lock::check_lock();
         return;
     }
     let headless = args.iter().any(|a| a == "--headless");

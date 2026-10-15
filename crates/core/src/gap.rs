@@ -6,7 +6,7 @@
 use chrono::{DateTime, Local, TimeZone, Utc};
 use serde::Serialize;
 
-use crate::model::Activity;
+use crate::model::{Activity, Stopped};
 
 /// Why the popover asks about a gap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -71,6 +71,33 @@ impl Gap {
     }
 }
 
+/// What to ask after the daemon started.
+///
+/// - `previous_alive`: when the previous daemon was last known to be running.
+/// - `restored`: the activity that was still running when it stopped.
+///
+/// If aw-manual was stopped at least `min`, the whole flow runs (log the gap,
+/// then continue). If it was stopped for a shorter time but an activity was
+/// running, only "continue with it?" is asked (no range). Otherwise nothing.
+pub fn restart_gap(
+    previous_alive: Option<DateTime<Utc>>,
+    restored: Option<&Stopped>,
+    now: DateTime<Utc>,
+    min: std::time::Duration,
+) -> Option<Gap> {
+    // The restored activity ended with its last heartbeat: the gap starts
+    // there, so it leaves no hole.
+    let start = restored.map(|r| r.ended).or(previous_alive)?;
+    let last = restored.map(|r| GapActivity::new(&r.activity, r.note.as_deref()));
+    let stopped_for = (now - start).to_std().unwrap_or_default();
+    let mut gap = Gap::new(GapReason::Restart, start, now, last);
+    if stopped_for < min {
+        gap.last.as_ref()?;
+        gap.range = None;
+    }
+    Some(gap)
+}
+
 /// Formats a period as a range the time parser understands, in local time.
 /// Minutes are truncated, so the range never ends in the future.
 pub fn range_text<Tz: TimeZone>(start: DateTime<Utc>, end: DateTime<Utc>, tz: &Tz) -> String
@@ -115,6 +142,52 @@ mod tests {
             parsed,
             (ts("2026-10-08T23:50:00Z"), ts("2026-10-09T00:20:00Z"))
         );
+    }
+
+    fn stopped(ended: &str) -> Stopped {
+        Stopped {
+            activity: Activity {
+                id: "acme/dev".into(),
+                title: "Dev".into(),
+                path: vec!["ACME".into(), "Dev".into()],
+                kind: crate::favorites::Kind::Activity,
+                origin: crate::model::Origin::Config,
+                color: None,
+                icon: None,
+            },
+            note: Some("n".into()),
+            ended: ts(ended),
+        }
+    }
+
+    #[test]
+    fn restart() {
+        const MIN: std::time::Duration = std::time::Duration::from_secs(60);
+        let now = ts("2026-10-09T09:00:00Z");
+        // First start ever: nothing to ask.
+        assert_eq!(restart_gap(None, None, now, MIN), None);
+        // Daemon (or computer) restarted with nothing running.
+        let g = restart_gap(Some(ts("2026-10-09T08:30:00Z")), None, now, MIN).unwrap();
+        assert_eq!(
+            (g.start, g.minutes, g.last),
+            (ts("2026-10-09T08:30:00Z"), 30, None)
+        );
+        assert!(g.range.is_some());
+        // Restarted quickly with nothing running: nothing to ask.
+        assert_eq!(
+            restart_gap(Some(ts("2026-10-09T08:59:40Z")), None, now, MIN),
+            None
+        );
+        // With a running activity: the gap starts at its last heartbeat.
+        let r = stopped("2026-10-09T08:29:20Z");
+        let g = restart_gap(Some(ts("2026-10-09T08:30:00Z")), Some(&r), now, MIN).unwrap();
+        assert_eq!(g.start, ts("2026-10-09T08:29:20Z"));
+        assert_eq!(g.last.unwrap().note.as_deref(), Some("n"));
+        // Quick restart with a running activity: only "continue?".
+        let r = stopped("2026-10-09T08:59:30Z");
+        let g = restart_gap(Some(ts("2026-10-09T08:59:50Z")), Some(&r), now, MIN).unwrap();
+        assert_eq!(g.range, None);
+        assert!(g.last.is_some());
     }
 
     #[test]

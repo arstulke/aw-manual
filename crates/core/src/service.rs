@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
@@ -95,6 +95,8 @@ pub struct Service<U: Ui> {
     loaded: RwLock<Loaded>,
     changes: broadcast::Sender<()>,
     ui: U,
+    /// When the previous daemon was last known to be running (taken once).
+    previous_alive: Mutex<Option<DateTime<Utc>>>,
 }
 
 fn yaml_errors(errs: Vec<YamlError>) -> Vec<crate::favorites::FileError> {
@@ -147,6 +149,11 @@ impl<U: Ui> Service<U> {
         let mut cache = FavoritesCache::default();
         let favorites = load_favorites(&config.favorite_dirs(&config_dir), Some(&mut cache));
         let store = Store::open(database)?;
+        let previous_alive = store.alive().unwrap_or_else(|e| {
+            tracing::warn!("cannot read the last running time: {e:#}");
+            None
+        });
+        let alive_store = store.clone();
         let writer = Writer::new(
             store.clone(),
             server_target(&config, &hostname),
@@ -175,6 +182,19 @@ impl<U: Ui> Service<U> {
             }),
             changes,
             ui,
+            previous_alive: Mutex::new(previous_alive),
+        });
+
+        // Remember that the daemon is running, so the next start knows how
+        // long aw-manual was stopped (restart prompt).
+        tokio::spawn(async move {
+            let mut iv = tokio::time::interval(Duration::from_secs(15));
+            loop {
+                iv.tick().await;
+                if let Err(e) = alive_store.set_alive(Utc::now()) {
+                    tracing::warn!("cannot record the running time: {e:#}");
+                }
+            }
         });
 
         tokio::spawn(writer.run());
@@ -212,6 +232,15 @@ impl<U: Ui> Service<U> {
             }
         });
         Ok(svc)
+    }
+
+    /// When the previous daemon was last known to be running (`None` on the
+    /// first start, or when already taken).
+    pub fn take_previous_alive(&self) -> Option<DateTime<Utc>> {
+        self.previous_alive
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
     }
 
     pub fn lock_engine(&self) -> std::sync::MutexGuard<'_, Engine> {

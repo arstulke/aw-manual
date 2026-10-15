@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use aw_manual_core::engine::ErrorCode;
-use aw_manual_core::gap::{Gap, GapActivity, GapReason};
+use aw_manual_core::gap::{self, Gap, GapActivity, GapReason};
 use aw_manual_core::ipc::{self, Endpoint, IpcError, NavCommand};
 use aw_manual_core::model::Source;
 use aw_manual_core::paths;
@@ -145,26 +145,40 @@ pub fn run(endpoint: Endpoint, options: Options) {
             tokio::spawn(ipc::serve(listener, svc.clone()));
             tracing::info!("aw-manual daemon listening on {endpoint}");
 
-            // The activity that was running before an unexpected restart.
             spawn_lock_watcher(handle.clone(), svc.clone());
 
-            // The activity that was running before an unexpected restart:
-            // ask what happened in between and what to continue with.
+            // After a (re-)start of aw-manual or the computer: ask what
+            // happened while it was stopped and what to continue with.
             let restored = svc.lock_engine().take_restored();
+            let previous_alive = svc.take_previous_alive();
             let mut asked = false;
-            if let Some(stopped) = restored {
-                if svc.config().notifications.after_restart && !options.first_run {
-                    let gap = Gap::new(
-                        GapReason::Restart,
-                        stopped.ended,
-                        chrono::Utc::now(),
-                        Some(GapActivity::new(&stopped.activity, stopped.note.as_deref())),
-                    );
-                    match popover::ask_gap(&handle, gap) {
-                        Ok(()) => asked = true,
-                        Err(e) => {
-                            tracing::warn!("cannot open the popover: {e}");
-                            notifications::restored(&handle, &stopped);
+            match (svc.config().notifications.after_restart, options.first_run) {
+                (None, _) => tracing::info!("restart prompt disabled (notifications.after_restart)"),
+                (Some(_), true) => {}
+                (Some(min), false) => {
+                    let now = chrono::Utc::now();
+                    match gap::restart_gap(previous_alive, restored.as_ref(), now, min) {
+                        None => tracing::info!(
+                            "restart prompt: not asking (aw-manual was stopped since {}, minimum {}, nothing was running)",
+                            previous_alive.map_or("unknown".into(), |t| t.to_rfc3339()),
+                            aw_manual_core::duration::format_duration(min)
+                        ),
+                        Some(g) => {
+                            tracing::info!(
+                                "restart prompt: aw-manual was stopped from {} to {} ({} min), asking",
+                                g.start.to_rfc3339(),
+                                g.end.to_rfc3339(),
+                                g.minutes
+                            );
+                            match popover::ask_gap(&handle, g) {
+                                Ok(()) => asked = true,
+                                Err(e) => {
+                                    tracing::warn!("cannot open the popover: {e}");
+                                    if let Some(stopped) = &restored {
+                                        notifications::restored(&handle, stopped);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -257,26 +271,46 @@ fn spawn_reminders(app: AppHandle, svc: Arc<Svc>) {
 fn spawn_lock_watcher(app: AppHandle, svc: Arc<Svc>) {
     tokio::spawn(async move {
         let mut probe = lock::Probe::new().await;
+        let readings = probe.read().await;
+        tracing::info!(
+            "screen lock detection: {}",
+            readings
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
         let mut locked_since: Option<chrono::DateTime<chrono::Utc>> = None;
         let mut iv = tokio::time::interval(Duration::from_secs(2));
         loop {
             iv.tick().await;
-            let Some(locked) = probe.is_locked().await else {
+            let readings = probe.read().await;
+            let Some(locked) = lock::locked(&readings) else {
                 continue;
             };
             match (locked, locked_since) {
                 (true, None) => {
-                    tracing::debug!("screen locked");
+                    let by: Vec<_> = readings
+                        .iter()
+                        .filter(|r| r.value == Ok(true))
+                        .map(|r| r.source.as_str())
+                        .collect();
+                    tracing::info!("screen locked (detected by: {})", by.join(", "));
                     locked_since = Some(chrono::Utc::now());
                 }
                 (false, Some(since)) => {
                     locked_since = None;
                     let now = chrono::Utc::now();
-                    tracing::debug!("screen unlocked after {}s", (now - since).num_seconds());
+                    let secs = (now - since).num_seconds();
                     let Some(min) = svc.config().notifications.after_unlock else {
+                        tracing::info!("screen unlocked after {secs}s; prompt disabled (notifications.after_unlock)");
                         continue;
                     };
                     if (now - since).to_std().unwrap_or_default() < min {
+                        tracing::info!(
+                            "screen unlocked after {secs}s; not asking (minimum {})",
+                            aw_manual_core::duration::format_duration(min)
+                        );
                         continue;
                     }
                     let last = svc
@@ -285,8 +319,12 @@ fn spawn_lock_watcher(app: AppHandle, svc: Arc<Svc>) {
                         .map(|r| GapActivity::new(&r.activity, r.note.as_deref()));
                     let gap = Gap::new(GapReason::Unlock, since, now, last);
                     if gap.range.is_none() {
+                        tracing::info!(
+                            "screen unlocked after {secs}s; not asking (shorter than a minute)"
+                        );
                         continue;
                     }
+                    tracing::info!("screen unlocked after {secs}s; asking what happened");
                     if let Err(e) = popover::ask_gap(&app, gap) {
                         tracing::warn!("cannot open the popover: {e}");
                     }

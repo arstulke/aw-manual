@@ -34,7 +34,8 @@ pub fn tray_text(cfg: &TrayConfig, r: &RunningInfo, now: DateTime<Utc>) -> Optio
     }
 }
 
-/// Whether the text changes every second (otherwise once per minute).
+/// Whether the text changes every second (otherwise once per minute, except
+/// for the first minute of a run, which `1h 23m` shows in seconds).
 pub fn needs_seconds(cfg: &TrayConfig) -> bool {
     if !cfg.elapsed_format.has_seconds() {
         return false;

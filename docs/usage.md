@@ -157,7 +157,8 @@ the standard ActivityWatch installation. `afk_prompt: false` disables it.
   `since` (`since 09:30`), `title`, or `template` with `{title}`, `{path}`,
   `{elapsed}`, `{since}`, `{note}` (default `{title} · {elapsed}`).
   `elapsed_format` is `1h 23m`, `1:23`, `1h 23m 45s` or `1:23:45`; with seconds
-  the text updates every second, otherwise every minute. `time_format` is `24h`
+  the text updates every second, otherwise every minute. `1h 23m` shows seconds
+  during the first minute (`42s` instead of `0m`). `time_format` is `24h`
   or `12h`.
 - The tooltip always shows path, start time, duration and note.
 

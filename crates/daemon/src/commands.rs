@@ -58,6 +58,18 @@ pub fn stop(svc: Svcs<'_>, source: Option<String>) -> Result<Value, String> {
 }
 
 #[tauri::command]
+pub fn resume(svc: Svcs<'_>) -> Result<Value, String> {
+    svc.call("resume", json!({ "source": Source::Popover }))
+        .map_err(|e| e.message)
+}
+
+/// The latest request that opened the popover (the page may load after it).
+#[tauri::command]
+pub fn last_opened(app: AppHandle) -> Value {
+    serde_json::to_value(crate::popover::last_opened(&app)).unwrap_or(Value::Null)
+}
+
+#[tauri::command]
 pub fn set_note(svc: Svcs<'_>, note: Option<String>) -> Result<Value, String> {
     svc.call("note", json!({ "note": note, "source": Source::Popover }))
         .map_err(|e| e.message)

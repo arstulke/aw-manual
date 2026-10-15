@@ -100,7 +100,16 @@
       "properties": {
         "idle_reminder": { "$ref": "#/$defs/optionalDuration", "default": "15m" },
         "long_running": { "$ref": "#/$defs/optionalDuration", "default": "3h" },
-        "after_restart": { "type": "boolean", "default": true },
+        "after_restart": {
+          "type": "boolean",
+          "default": true,
+          "description": "After a restart, open the popover and ask what you did while aw-manual wasn't running, then what to continue with."
+        },
+        "after_unlock": {
+          "$ref": "#/$defs/optionalDuration",
+          "default": "1m",
+          "description": "After unlocking the screen (locked at least this long), ask the same; false disables it."
+        },
         "offline": { "type": "boolean", "default": true },
         "work_hours": {
           "type": "object",

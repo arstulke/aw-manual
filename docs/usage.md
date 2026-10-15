@@ -22,8 +22,9 @@ autostart (LaunchAgent on macOS, registry on Windows, XDG autostart on Linux).
 With Nix, the NixOS and Home Manager modules start it as a systemd user service.
 
 After a reboot or crash, a previously running activity is **not** resumed. It
-ends with its last heartbeat (at most one heartbeat interval is lost), and a
-notification "Last activity: … (ended 09:42)" offers to resume it.
+ends with its last heartbeat (at most one heartbeat interval is lost), and the
+popover asks what you did in between and what to continue with (see
+[After a restart or unlocking the screen](#after-a-restart-or-unlocking-the-screen)).
 
 ## Popover
 
@@ -130,6 +131,32 @@ A retroactive entry takes precedence: overlapping aw-manual entries are trimmed
 or split without asking. If it overlaps the running activity, the running
 activity restarts at the end of the entry.
 
+### After a restart or unlocking the screen
+
+Time in which you couldn't track anything (fixing a computer problem, an
+on-site meeting, helping a colleague, a break) is easy to fill in afterwards:
+
+1. **What were you doing?** The popover opens with the gap prefilled as a
+   retroactive range ("aw-manual wasn't running from 09:42 to 10:15" or "The
+   screen was locked from …"). Pick a favorite to log the gap, or press Esc to
+   skip it.
+2. **Continue with … from now?** Enter (or Y) starts the activity you just
+   picked; after a restart without a pick, it offers the activity that was
+   running before (resumed with its note).
+3. **What are you doing now?** If you answer No (N), pick the activity to start
+   from now on. Esc at any step leaves things as they are.
+
+Nothing is recorded unless you pick something. After unlocking, a skipped gap
+leaves the running activity running, as aw-manual never pauses on its own.
+
+- `notifications.after_restart` (default on) asks after aw-manual starts and
+  finds an activity that was still running when it stopped (reboot, crash).
+- `notifications.after_unlock` (default `1m`) asks after unlocking the screen
+  when it was locked at least that long; `false` disables it. Detection:
+  logind's `LockedHint` or the screen saver D-Bus interface on Linux (GNOME,
+  KDE and lockers that report to logind), the lock screen on Windows and
+  macOS.
+
 ## Tray / menu bar
 
 - Icon states: idle (ring), active (filled, tinted in the favorite's color if
@@ -198,8 +225,8 @@ Each one can be turned off in `notifications`:
   within `work_hours` (days and times). Shown once per idle period.
 - **long_running** (default 3h): the same activity has been running that long;
   actions Continue, Stop, Open popover. Shown once per run.
-- **after_restart**: the activity that was running before a restart, with a
-  Resume action.
+- **after_restart**, **after_unlock**: open the popover and ask what you did
+  meanwhile (see [above](#after-a-restart-or-unlocking-the-screen)).
 - **offline**: aw-server is unreachable and entries are buffered; once per
   offline period.
 

@@ -88,7 +88,12 @@ pub struct NotificationsConfig {
     pub idle_reminder: Option<Duration>,
     #[serde(serialize_with = "ser_opt_duration")]
     pub long_running: Option<Duration>,
+    /// After a restart: ask what the user did meanwhile and what to continue with.
     pub after_restart: bool,
+    /// After unlocking the screen (locked at least this long): the same
+    /// question (`None` = disabled).
+    #[serde(serialize_with = "ser_opt_duration")]
+    pub after_unlock: Option<Duration>,
     pub offline: bool,
     pub work_hours: WorkHours,
 }
@@ -233,6 +238,7 @@ impl Default for Config {
                 idle_reminder: Some(Duration::from_secs(15 * 60)),
                 long_running: Some(Duration::from_secs(3 * 3600)),
                 after_restart: true,
+                after_unlock: Some(Duration::from_secs(60)),
                 offline: true,
                 work_hours: WorkHours {
                     days: vec![
@@ -302,7 +308,8 @@ tray:
 notifications:
   idle_reminder: 15m                # false to disable
   long_running: 3h                  # false to disable
-  after_restart: true
+  after_restart: true               # ask what you did while aw-manual wasn't running
+  after_unlock: 1m                  # ... while the screen was locked (at least 1m); false to disable
   offline: true
   work_hours:
     days: [mon, tue, wed, thu, fri]
@@ -810,6 +817,7 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
                 "idle_reminder",
                 "long_running",
                 "after_restart",
+                "after_unlock",
                 "offline",
                 "work_hours",
             ],
@@ -831,6 +839,12 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
             entry(s, "after_restart"),
             "notifications.after_restart",
             &mut cfg.notifications.after_restart,
+            &mut errs,
+        );
+        read_opt_duration(
+            entry(s, "after_unlock"),
+            "notifications.after_unlock",
+            &mut cfg.notifications.after_unlock,
             &mut errs,
         );
         read_bool(
@@ -1194,6 +1208,13 @@ openaction:
         let src = "notifications:\n  idle_reminder: false\n  long_running: 90m\nhotkeys:\n  resume:\n  favorites:\n    acme/dev: Ctrl+Alt+1\n";
         let c = parse_config(src).unwrap();
         assert_eq!(c.notifications.idle_reminder, None);
+        assert_eq!(
+            parse_config("notifications:\n  after_unlock: false\n")
+                .unwrap()
+                .notifications
+                .after_unlock,
+            None
+        );
         assert_eq!(
             c.notifications.long_running,
             Some(Duration::from_secs(5400))

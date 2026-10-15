@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use aw_manual_core::engine::ErrorCode;
+use aw_manual_core::gap::{Gap, GapActivity, GapReason};
 use aw_manual_core::ipc::{self, Endpoint, IpcError, NavCommand};
 use aw_manual_core::model::Source;
 use aw_manual_core::paths;
@@ -12,7 +13,7 @@ use aw_manual_core::service::{Service, Ui};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
 
-use crate::{commands, hotkeys, notifications, popover, tray, watcher, Options};
+use crate::{commands, hotkeys, lock, notifications, popover, tray, watcher, Options};
 
 pub type Svc = Service<TauriUi>;
 
@@ -91,6 +92,8 @@ pub fn run(endpoint: Endpoint, options: Options) {
             commands::get_snapshot,
             commands::start_favorite,
             commands::stop,
+            commands::resume,
+            commands::last_opened,
             commands::set_note,
             commands::log_entry,
             commands::preview_range,
@@ -143,15 +146,32 @@ pub fn run(endpoint: Endpoint, options: Options) {
             tracing::info!("aw-manual daemon listening on {endpoint}");
 
             // The activity that was running before an unexpected restart.
+            spawn_lock_watcher(handle.clone(), svc.clone());
+
+            // The activity that was running before an unexpected restart:
+            // ask what happened in between and what to continue with.
             let restored = svc.lock_engine().take_restored();
+            let mut asked = false;
             if let Some(stopped) = restored {
-                if svc.config().notifications.after_restart {
-                    notifications::restored(&handle, &stopped);
+                if svc.config().notifications.after_restart && !options.first_run {
+                    let gap = Gap::new(
+                        GapReason::Restart,
+                        stopped.ended,
+                        chrono::Utc::now(),
+                        Some(GapActivity::new(&stopped.activity, stopped.note.as_deref())),
+                    );
+                    match popover::ask_gap(&handle, gap) {
+                        Ok(()) => asked = true,
+                        Err(e) => {
+                            tracing::warn!("cannot open the popover: {e}");
+                            notifications::restored(&handle, &stopped);
+                        }
+                    }
                 }
             }
             if options.first_run {
                 let _ = open_settings(&handle);
-            } else if !options.background {
+            } else if !options.background && !asked {
                 let _ = popover::show(&handle, "launch");
             }
             Ok(())
@@ -228,6 +248,50 @@ fn spawn_reminders(app: AppHandle, svc: Arc<Svc>) {
                     let _ = svc.lock_engine().mark_long_running_notified();
                 }
                 notifications::notice(&app, &n);
+            }
+        }
+    });
+}
+
+/// After the screen was unlocked: ask what the user did while it was locked.
+fn spawn_lock_watcher(app: AppHandle, svc: Arc<Svc>) {
+    tokio::spawn(async move {
+        let mut probe = lock::Probe::new().await;
+        let mut locked_since: Option<chrono::DateTime<chrono::Utc>> = None;
+        let mut iv = tokio::time::interval(Duration::from_secs(2));
+        loop {
+            iv.tick().await;
+            let Some(locked) = probe.is_locked().await else {
+                continue;
+            };
+            match (locked, locked_since) {
+                (true, None) => {
+                    tracing::debug!("screen locked");
+                    locked_since = Some(chrono::Utc::now());
+                }
+                (false, Some(since)) => {
+                    locked_since = None;
+                    let now = chrono::Utc::now();
+                    tracing::debug!("screen unlocked after {}s", (now - since).num_seconds());
+                    let Some(min) = svc.config().notifications.after_unlock else {
+                        continue;
+                    };
+                    if (now - since).to_std().unwrap_or_default() < min {
+                        continue;
+                    }
+                    let last = svc
+                        .lock_engine()
+                        .running()
+                        .map(|r| GapActivity::new(&r.activity, r.note.as_deref()));
+                    let gap = Gap::new(GapReason::Unlock, since, now, last);
+                    if gap.range.is_none() {
+                        continue;
+                    }
+                    if let Err(e) = popover::ask_gap(&app, gap) {
+                        tracing::warn!("cannot open the popover: {e}");
+                    }
+                }
+                _ => {}
             }
         }
     });

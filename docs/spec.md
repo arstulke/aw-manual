@@ -292,7 +292,7 @@ Unknown or custom hardware (Timebuzzer, programmable cube …) is supported as s
 Native system notifications, each individually toggleable:
 - **No timer running:** Reminder when no activity has been running for more than X minutes (default 15) – only within configurable working hours (weekdays/times), since there is no dependency on AFK data
 - **Long-running activity:** Notice when the same activity has been running for more than X hours (default 3 h); notification actions: "Continue", "Stop", "Open popover"
-- **After restart:** Notice about the last running, now ended activity with a "Resume" action (see 4.5)
+- **After restart / unlocking the screen:** The popover asks what the user did in between (retroactive entry for the gap), then whether to continue with that activity from now, otherwise which activity to start
 - **Offline:** One-time notice when entries are being buffered
 - Status permanently visible in the tray (see 5.2)
 
@@ -506,7 +506,7 @@ A file can set `parent` (full ID of a folder or leaf) to hang its favorites unde
 | Overlapping retroactive entries | Retroactive entry takes precedence, without asking |
 | Editing notes | Not possible; a new note creates a new activity |
 | Timeline | Removed, possibly later |
-| Resume after restart | Not automatic; offered via notification |
+| Resume after restart | Not automatic; the popover asks what happened in between and what to continue with (also after unlocking the screen) |
 | Remote aw-server | URL freely configurable |
 | Scroll mode confirmation | Hotkey and/or dwell time |
 | Scroll mode scope | Start and stop only; no retroactive entries or notes |

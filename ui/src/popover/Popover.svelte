@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import { api, errorText, onClosed, onNav, onOpened, onStateChanged, type Opened } from "../lib/api";
+  import { api, errorText, onClosed, onNav, onOpened, onStateChanged, type Gap, type Opened } from "../lib/api";
   import { formatClock, formatElapsed, iconGlyph, parseDuration, PATH_SEPARATOR } from "../lib/format";
   import { search } from "../lib/fuzzy";
   import { DrillDown, ExpandedTree, type NavItem, type ScrollNav } from "../lib/nav";
@@ -17,6 +17,14 @@
   let noteOpen = $state(false);
   /** A favorite waiting for its note (ask_note, Shift+Enter, right click). */
   let noteFor = $state<Favorite | null>(null);
+  /**
+   * Question after a restart or unlock: "gap" logs what happened meanwhile,
+   * "resume" offers to continue an activity from now, "choose" asks for the
+   * activity from now on.
+   */
+  type Continue = { id: string; path: string[]; note: string | null; last: boolean };
+  let prompt = $state<{ step: "gap" | "resume" | "choose"; gap: Gap; next: Continue | null } | null>(null);
+  let handledSeq = 0;
   let retro = $state(false);
   let range = $state("");
   let preview = $state<{ text?: string; error?: string } | null>(null);
@@ -126,8 +134,13 @@
     return null;
   }
 
-  async function reset(opened?: Opened) {
+  async function reset(opened?: Opened | null) {
+    if (opened) {
+      if (opened.seq <= handledSeq) return;
+      handledSeq = opened.seq;
+    }
     clearTimers();
+    prompt = null;
     mode = "scroll";
     query = "";
     note = "";
@@ -155,6 +168,10 @@
       await openNote();
       return;
     }
+    if (opened?.gap) {
+      await startGap(opened.gap);
+      return;
+    }
     restartTimeout();
     await tick();
     listEl?.focus();
@@ -167,6 +184,88 @@
     } catch (e) {
       error = errorText(e);
     }
+  }
+
+  function lastActivity(gap: Gap): Continue | null {
+    return gap.last ? { id: gap.last.id, path: gap.last.path, note: gap.last.note, last: true } : null;
+  }
+
+  /** Step 1: what happened during the gap (a retroactive entry). */
+  async function startGap(gap: Gap) {
+    if (!gap.range) {
+      // Too short to log anything: only ask what to continue with.
+      const last = lastActivity(gap);
+      prompt = { step: "gap", gap, next: null };
+      if (last) await askContinue(last);
+      else await chooseNow();
+      return;
+    }
+    prompt = { step: "gap", gap, next: null };
+    await enterKeyboard();
+    retro = true;
+    range = gap.range;
+    await tick();
+    searchEl?.focus();
+  }
+
+  /** Esc in step 1: nothing logged. After a restart, offer the last activity. */
+  async function skipGap() {
+    if (!prompt) return;
+    const last = prompt.gap.reason === "restart" ? lastActivity(prompt.gap) : null;
+    if (last) await askContinue(last);
+    else if (prompt.gap.reason === "restart") await chooseNow();
+    else await close();
+  }
+
+  /** Step 2: continue with this activity from now? */
+  async function askContinue(next: Continue) {
+    if (!prompt) return;
+    prompt = { ...prompt, step: "resume", next };
+    retro = false;
+    range = "";
+    query = "";
+    note = "";
+    noteOpen = false;
+    noteFor = null;
+    await tick();
+    listEl?.focus();
+  }
+
+  async function continueYes() {
+    const next = prompt?.next;
+    if (!next || busy) return;
+    busy = true;
+    error = "";
+    try {
+      // The last activity before a restart is resumed as it was (also ad-hoc
+      // activities); a favorite picked for the gap starts from now.
+      if (next.last && prompt?.gap.reason === "restart") await api.resume();
+      else await api.start(next.id, next.note, "popover");
+      await close();
+    } catch (e) {
+      error = errorText(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Step 3: what are you doing from now on? */
+  async function chooseNow() {
+    if (!prompt) return;
+    prompt = { ...prompt, step: "choose", next: null };
+    retro = false;
+    range = "";
+    note = "";
+    await enterKeyboard();
+  }
+
+  function gapText(gap: Gap): string {
+    const fmt = snap?.tray.time_format ?? "24h";
+    const from = formatClock(new Date(gap.start), fmt);
+    const to = formatClock(new Date(gap.end), fmt);
+    const len = gap.minutes < 60 ? `${gap.minutes} min` : formatElapsed(gap.minutes * 60, "1h 23m");
+    const what = gap.reason === "restart" ? "aw-manual wasn't running" : "The screen was locked";
+    return `${what} from ${from} to ${to} (${len}).`;
   }
 
   /** Switches to keyboard mode with the note field focused. */
@@ -204,6 +303,11 @@
         await api.log(fav.id, range, n);
       } else {
         await api.start(fav.id, n, source);
+      }
+      if (prompt?.step === "gap") {
+        // Logged what happened meanwhile; next: continue with it from now?
+        await askContinue({ id: fav.id, path: fav.path, note: n, last: false });
+        return;
       }
       await close();
     } catch (e) {
@@ -277,6 +381,11 @@
   /** Abstract navigation commands (scroll wheel, keys, `aw-manual nav`, hotkey). */
   function nav(cmd: NavCommand) {
     if (busy) return;
+    if (prompt?.step === "resume" && (cmd === "confirm" || cmd === "cancel")) {
+      if (cmd === "confirm") continueYes();
+      else close();
+      return;
+    }
     if (mode === "scroll") {
       switch (cmd) {
         case "next":
@@ -387,6 +496,24 @@
   function onKeydown(e: KeyboardEvent) {
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
+    if (prompt?.step === "resume") {
+      if (e.key === "Enter" || key === "y") {
+        e.preventDefault();
+        continueYes();
+      } else if (key === "n" || e.key === "Tab") {
+        e.preventDefault();
+        chooseNow();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+      }
+      return;
+    }
+    if (prompt?.step === "gap" && e.key === "Escape" && !query && e.target !== noteEl) {
+      e.preventDefault();
+      skipGap();
+      return;
+    }
     if (ctrl && key === "s") {
       e.preventDefault();
       stopRunning();
@@ -633,7 +760,7 @@
     ];
     const ticker = setInterval(() => (now = Date.now()), 1000);
     // The page may finish loading after the first "opened" event.
-    reset();
+    api.lastOpened().then((o) => reset(o), () => reset());
     window.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       clearInterval(ticker);
@@ -729,6 +856,23 @@
       <div class="running idle">
         <span class="what muted">No activity running</span>
         <button class="settings" onclick={openSettings} title="Settings (Ctrl+,)" aria-label="Settings">⚙</button>
+      </div>
+    {/if}
+    {#if prompt}
+      <div class="prompt">
+        {#if prompt.step === "gap"}
+          <div class="q">{gapText(prompt.gap)} What were you doing?</div>
+          <div class="muted">Pick a favorite to log this time, or press <kbd>Esc</kbd> to skip.</div>
+        {:else if prompt.step === "resume" && prompt.next}
+          <div class="q">Continue with {prompt.next.path.join(PATH_SEPARATOR)} from now?</div>
+          <div class="buttons">
+            <button class="primary" onclick={continueYes} disabled={busy}>Yes, continue <kbd>Enter</kbd></button>
+            <button onclick={chooseNow} disabled={busy}>No, something else <kbd>N</kbd></button>
+            <button onclick={close} disabled={busy}>Nothing <kbd>Esc</kbd></button>
+          </div>
+        {:else if prompt.step === "choose"}
+          <div class="q">What are you doing now?</div>
+        {/if}
       </div>
     {/if}
     {#if snap && snap.status.server.online === false}
@@ -866,6 +1010,21 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .prompt {
+    margin-top: 8px;
+    font-size: 13px;
+  }
+  .prompt .q {
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 2px;
+  }
+  .prompt .buttons {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+    flex-wrap: wrap;
   }
   .offline {
     margin-top: 6px;

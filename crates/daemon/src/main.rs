@@ -12,6 +12,7 @@ mod app;
 mod commands;
 mod hotkeys;
 mod icons;
+mod lock;
 mod mouse;
 mod notifications;
 mod popover;

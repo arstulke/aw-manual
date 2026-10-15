@@ -91,6 +91,7 @@
       "notifications.idle_reminder": c.notifications.idle_reminder,
       "notifications.long_running": c.notifications.long_running,
       "notifications.after_restart": c.notifications.after_restart,
+      "notifications.after_unlock": c.notifications.after_unlock,
       "notifications.offline": c.notifications.offline,
       "notifications.work_hours.days": [...c.notifications.work_hours.days],
       "notifications.work_hours.from": c.notifications.work_hours.from,
@@ -113,6 +114,8 @@
   let idleValue = $state("15m");
   let longOn = $state(true);
   let longValue = $state("3h");
+  let unlockOn = $state(true);
+  let unlockValue = $state("1m");
 
   async function load(resetForm: boolean) {
     try {
@@ -127,6 +130,9 @@
         const long = data.config.notifications.long_running;
         longOn = long !== false;
         longValue = long === false ? "3h" : long;
+        const unlock = data.config.notifications.after_unlock;
+        unlockOn = unlock !== false;
+        unlockValue = unlock === false ? "1m" : unlock;
       }
     } catch (e) {
       loadError = errorText(e);
@@ -137,6 +143,7 @@
     const f = { ...form };
     f["notifications.idle_reminder"] = idleOn ? idleValue : false;
     f["notifications.long_running"] = longOn ? longValue : false;
+    f["notifications.after_unlock"] = unlockOn ? unlockValue : false;
     const out: { path: string[]; value: any }[] = [];
     for (const [k, v] of Object.entries(f)) {
       if (JSON.stringify(v) !== JSON.stringify(original[k])) out.push({ path: k.split("."), value: v });
@@ -170,6 +177,9 @@
       const long = data.config.notifications.long_running;
       longOn = long !== false;
       longValue = long === false ? "3h" : long;
+      const unlock = data.config.notifications.after_unlock;
+      unlockOn = unlock !== false;
+      unlockValue = unlock === false ? "1m" : unlock;
     }
   }
 
@@ -393,7 +403,11 @@
             <label class="check"><input type="checkbox" bind:checked={longOn} /> Notify when the same activity has been running for</label>
             <input bind:value={longValue} class="short" disabled={!longOn} />
           </div>
-          <label class="check"><input type="checkbox" bind:checked={form["notifications.after_restart"]} /> After a restart, offer to resume the last activity</label>
+          <label class="check"><input type="checkbox" bind:checked={form["notifications.after_restart"]} /> After a restart, ask what I did meanwhile, then whether to continue with it</label>
+          <div class="row">
+            <label class="check"><input type="checkbox" bind:checked={unlockOn} /> After unlocking the screen, ask the same if it was locked for at least</label>
+            <input bind:value={unlockValue} class="short" disabled={!unlockOn} />
+          </div>
           <label class="check"><input type="checkbox" bind:checked={form["notifications.offline"]} /> Tell me when entries are being buffered (aw-server unreachable)</label>
         </section>
         <h3>Working hours (for the reminder)</h3>

@@ -23,12 +23,18 @@ const HEIGHT: f64 = 460.0;
 struct State {
     visible: AtomicBool,
     shown_at: Mutex<Option<Instant>>,
+    /// The latest request, also for a page that loads after the event was sent.
+    last_opened: Mutex<Option<Opened>>,
+    seq: std::sync::atomic::AtomicU64,
 }
 
 /// Payload of the `popover:opened` event.
 #[derive(Clone, Default, Serialize)]
 pub struct Opened {
-    /// What opened the popover: "hotkey", "tray", "cli", "launch", "note".
+    /// Increases with every request (the page handles each one once).
+    pub seq: u64,
+    /// What opened the popover: "hotkey", "tray", "cli", "launch", "note",
+    /// "restart", "unlock".
     pub trigger: String,
     /// Ask for a note for this favorite, then start it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,6 +42,9 @@ pub struct Opened {
     /// Open the note field for the running activity.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub note: bool,
+    /// Ask what the user did during this gap, then what to continue with.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gap: Option<aw_manual_core::gap::Gap>,
 }
 
 impl Opened {
@@ -132,7 +141,7 @@ pub fn show(app: &AppHandle, trigger: &str) -> tauri::Result<()> {
     show_with(app, Opened::new(trigger))
 }
 
-pub fn show_with(app: &AppHandle, opened: Opened) -> tauri::Result<()> {
+pub fn show_with(app: &AppHandle, mut opened: Opened) -> tauri::Result<()> {
     let w = window(app)?;
     let open_at_cursor = app
         .state::<std::sync::Arc<Svc>>()
@@ -150,6 +159,8 @@ pub fn show_with(app: &AppHandle, opened: Opened) -> tauri::Result<()> {
     let state = app.state::<State>();
     *state.shown_at.lock().unwrap() = Some(Instant::now());
     state.visible.store(true, Ordering::SeqCst);
+    opened.seq = state.seq.fetch_add(1, Ordering::SeqCst) + 1;
+    *state.last_opened.lock().unwrap() = Some(opened.clone());
     app.emit("popover:opened", opened)?;
     w.show()?;
     w.set_focus()?;
@@ -237,4 +248,24 @@ pub fn start_or_ask(
     )
     .map(|_| ())
     .map_err(|e| e.message)
+}
+
+/// The latest open request (for the page when it finishes loading).
+pub fn last_opened(app: &AppHandle) -> Option<Opened> {
+    app.state::<State>().last_opened.lock().unwrap().clone()
+}
+
+/// Opens the popover and asks what the user did during the gap.
+pub fn ask_gap(app: &AppHandle, gap: aw_manual_core::gap::Gap) -> tauri::Result<()> {
+    let trigger = match gap.reason {
+        aw_manual_core::gap::GapReason::Restart => "restart",
+        aw_manual_core::gap::GapReason::Unlock => "unlock",
+    };
+    show_with(
+        app,
+        Opened {
+            gap: Some(gap),
+            ..Opened::new(trigger)
+        },
+    )
 }

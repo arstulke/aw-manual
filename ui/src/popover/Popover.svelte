@@ -514,21 +514,22 @@
   function onKeydown(e: KeyboardEvent) {
     const ctrl = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
-    // "Continue with …?": Y continues, N asks for another activity, Esc
-    // closes (while the search is empty). Enter starts the highlighted
+    // "Continue with …?": Shift+Y continues, Shift+N asks for another
+    // activity (plain letters go to the search, which ignores case), Esc
+    // closes while the search is empty. Enter starts the highlighted
     // activity, which is the one to continue unless the highlight was moved.
-    if (prompt?.step === "resume" && !query && !ctrl && !e.altKey && e.target !== noteEl) {
-      if (key === "y") {
+    if (prompt?.step === "resume" && !ctrl && !e.altKey && e.target !== noteEl) {
+      if (e.shiftKey && key === "y") {
         e.preventDefault();
         continueYes();
         return;
       }
-      if (key === "n") {
+      if (e.shiftKey && key === "n") {
         e.preventDefault();
         chooseNow();
         return;
       }
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && !query) {
         e.preventDefault();
         close();
         return;
@@ -897,8 +898,8 @@
         {:else if prompt.step === "resume" && prompt.next}
           <div class="q">Continue with {prompt.next.path.join(PATH_SEPARATOR)} from now?</div>
           <div class="buttons">
-            <button class="primary" onclick={continueYes} disabled={busy}>Yes, continue <kbd>Y</kbd></button>
-            <button onclick={chooseNow} disabled={busy}>No, something else <kbd>N</kbd></button>
+            <button class="primary" onclick={continueYes} disabled={busy}>Yes, continue <kbd>Shift</kbd>+<kbd>Y</kbd></button>
+            <button onclick={chooseNow} disabled={busy}>No, something else <kbd>Shift</kbd>+<kbd>N</kbd></button>
             <button onclick={close} disabled={busy}>Nothing <kbd>Esc</kbd></button>
           </div>
           <div class="muted">Or pick another activity below and press <kbd>Enter</kbd> to start it instead.</div>

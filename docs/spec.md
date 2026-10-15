@@ -352,9 +352,6 @@ popover:
     dwell_time: false               # e.g. 2s: confirm by dwell time
     open_at_cursor: true
     start_at: running               # running | first
-
-openaction:                         # Phase 2
-  toggle_running: stop              # pressing the running favorite again: stop | none
 ```
 
 ### 7.3 Favorites Files (`favorites.d/*.yaml`)

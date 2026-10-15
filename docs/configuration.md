@@ -103,9 +103,6 @@ cli:
 
 log:
   level: info                       # error | warn | info | debug | trace
-
-openaction:                         # phase 2 (OpenAction plugin)
-  toggle_running: stop              # stop | none
 ```
 
 Times of day must be quoted (`"08:00"`). `favorites.default_file` is a file

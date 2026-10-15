@@ -33,7 +33,6 @@ pub struct Config {
     pub popover: PopoverConfig,
     pub cli: CliConfig,
     pub log: LogConfig,
-    pub openaction: OpenActionConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -150,18 +149,6 @@ pub struct LogConfig {
     pub level: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ToggleRunning {
-    Stop,
-    None,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct OpenActionConfig {
-    pub toggle_running: ToggleRunning,
-}
-
 fn ser_opt_duration<S: serde::Serializer>(d: &Option<Duration>, s: S) -> Result<S::Ok, S::Error> {
     match d {
         Some(d) => s.serialize_str(&format_duration(*d)),
@@ -266,9 +253,6 @@ impl Default for Config {
             log: LogConfig {
                 level: "info".into(),
             },
-            openaction: OpenActionConfig {
-                toggle_running: ToggleRunning::Stop,
-            },
         }
     }
 }
@@ -328,9 +312,6 @@ cli:
 
 log:
   level: info                       # error | warn | info | debug | trace
-
-openaction:                         # phase 2 (OpenAction plugin)
-  toggle_running: stop              # stop | none
 "##;
 
 /// Collects validation errors for one file.
@@ -570,7 +551,6 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
             "popover",
             "cli",
             "log",
-            "openaction",
         ],
         &mut errs,
     );
@@ -956,17 +936,6 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
         }
     }
 
-    if let Some(o_node) = entry(top, "openaction") {
-        let s = section(o_node, "openaction", &["toggle_running"], &mut errs);
-        read_enum(
-            entry(s, "toggle_running"),
-            "openaction.toggle_running",
-            &[("stop", ToggleRunning::Stop), ("none", ToggleRunning::None)],
-            &mut cfg.openaction.toggle_running,
-            &mut errs,
-        );
-    }
-
     if errs.0.is_empty() {
         Ok(cfg)
     } else {
@@ -1113,8 +1082,6 @@ popover:
     dwell_time: 2s
     open_at_cursor: true
     start_at: running
-openaction:
-  toggle_running: stop
 "#;
         let c = parse_config(src).unwrap();
         assert_eq!(c.pulsetime(), Duration::from_secs(90));
@@ -1193,6 +1160,7 @@ openaction:
             "popover:\n  scroll:\n    wrap_around: true\n",
             "popover:\n  scroll:\n    sensitivity: 1.0\n",
             "popover:\n  scroll:\n    timeout: 10s\n",
+            "openaction:\n  toggle_running: stop\n",
         ] {
             let errs = parse_config(src).unwrap_err();
             assert!(

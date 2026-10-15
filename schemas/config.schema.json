@@ -179,14 +179,6 @@
       "properties": {
         "level": { "enum": ["error", "warn", "info", "debug", "trace"], "default": "info" }
       }
-    },
-    "openaction": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Settings of the OpenAction plugin (Phase 2).",
-      "properties": {
-        "toggle_running": { "enum": ["stop", "none"], "default": "stop" }
-      }
     }
   }
 }

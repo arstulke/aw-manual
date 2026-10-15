@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/cli", "crates/daemon"]
+default-members = ["crates/core", "crates/cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+repository = "https://github.com/arstulke/aw-manual"
+rust-version = "1.82"
+
+[workspace.dependencies]
+aw-manual-core = { path = "crates/core" }
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
+tracing = "0.1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true

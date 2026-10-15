@@ -98,7 +98,7 @@ Example event:
   "duration": 5400,
   "data": {
     "id": "acme/website/dev",
-    "title": "Development",
+    "title": "ACME › Website › Development",
     "path": ["ACME", "Website", "Development"],
     "kind": "activity",
     "note": "Navigation refactoring",
@@ -149,17 +149,18 @@ The popover must be fully operable without keyboard, mouse click or touch. **The
 
 **Scope:** Scroll mode covers **starting and stopping** activities only. Retroactive entries and notes are deliberately not available in scroll mode; they remain in keyboard mode.
 
-- **Open:** Hotkey. Focus is immediately on the favorites list (current hierarchy level).
-- **Select:** Scrolling moves the highlight item by item through the list, in the fixed configured order.
+- **Open:** Hotkey. Focus is immediately on the favorites list.
+- **Layout** (`popover.scroll.layout`): `tree` (default) shows the whole tree expanded, with folders as headings; `levels` shows one hierarchy level at a time.
+- **Select:** Scrolling moves the highlight item by item through the list, in the fixed configured order. In the `tree` layout only leaves (and the navigation items) can be highlighted.
 - **Confirm**, two ways (can be enabled individually or combined):
   - Press the **hotkey** again (default: on)
   - **Dwell time:** the highlight stays on an item for a configurable time (default 2 s) (default: off). A progress bar on the highlighted item shows the countdown; any scroll resets it. Dwell only starts after the first scroll movement, so merely opening the popover triggers nothing.
 - **Effect of confirming:**
-  - On a folder (e.g. client): opens the sub-level
+  - On a folder (e.g. client, `levels` layout): opens the sub-level
   - On a leaf (e.g. task): starts the activity and closes the popover
   - On the already running activity: closes the popover without change (no restart)
 - **Navigation items** inside the list, also reachable by scrolling:
-  - "‹ Back" as the first item of every sub-level
+  - "‹ Back" as the first item of every sub-level (`levels` layout)
   - "■ Stop" as the first item of the top level while an activity is running
   - "✕ Cancel" as the last item
 - **Abort without input:** The popover closes after a configurable timeout (default 10 s) without changes. The timeout must be longer than the dwell time.
@@ -167,7 +168,7 @@ The popover must be fully operable without keyboard, mouse click or touch. **The
 - **Scroll behavior:**
   - Default: one notch of the mouse wheel = one step
   - Deltas are accumulated, one step per threshold, so high-resolution wheels and touchpads don't "race through"; sensitivity configurable
-  - Stop at the end of the list or wrap around (configurable, default: stop)
+  - Wrap around at the end of the list or stop there (configurable, default: wrap around)
   - Horizontal scrolling or wheel tilt (if available) optionally acts as Back/Confirm
 - **Readability:** The highlighted item is clearly emphasized and shown with its full path, since search isn't available without a keyboard.
 
@@ -291,7 +292,7 @@ Unknown or custom hardware (Timebuzzer, programmable cube …) is supported as s
 Native system notifications, each individually toggleable:
 - **No timer running:** Reminder when no activity has been running for more than X minutes (default 15) – only within configurable working hours (weekdays/times), since there is no dependency on AFK data
 - **Long-running activity:** Notice when the same activity has been running for more than X hours (default 3 h); notification actions: "Continue", "Stop", "Open popover"
-- **After restart:** Notice about the last running, now ended activity with a "Resume" action (see 4.5)
+- **After restart / unlocking the screen:** The popover asks what the user did in between (retroactive entry for the gap), then whether to continue with that activity from now, otherwise which activity to start
 - **Offline:** One-time notice when entries are being buffered
 - Status permanently visible in the tray (see 5.2)
 
@@ -347,12 +348,13 @@ notifications:
 
 popover:
   scroll:
+    layout: tree                    # tree | levels
     confirm_with_hotkey: true
     dwell_confirm: false            # confirm by dwell time
     dwell_time: 2s
     timeout: 10s                    # must be longer than dwell_time
     sensitivity: 1.0                # threshold factor per step
-    wrap_around: false
+    wrap_around: true
     open_at_cursor: true
     start_at: running               # running | first
 
@@ -424,15 +426,15 @@ Fields: `id` (required), `title` (required), `color`, `icon`, `kind`, `children`
 - `aw-manual list --json` outputs the resolved values (after inheritance) and marks each value as `own` or `inherited`.
 
 #### Attaching to an existing folder
-A file can set `parent` (full ID of a folder) to hang its favorites under a folder defined in another file. This lets a generator add tasks below a hand-written client without rewriting it. `parent` works with both notations; `generated: true` likewise.
+A file can set `parent` (full ID of a folder or leaf) to hang its favorites under a folder defined in another file. This lets a generator add tasks below a hand-written client without rewriting it. `parent` works with both notations; `generated: true` likewise.
 
 #### Merge rules
 - Files with extension `.yaml` or `.yml` are loaded; hidden files (`.*`) and temp files (`*~`, `*.tmp`) are ignored. Subfolders are not read.
 - **Order:** directories in the order of `favorites.dirs`, files within a directory by file name (lexical), favorites within a file in their written order. Numeric prefixes like `10-`, `50-` control the order. The order stays fixed and manual as required in 4.2.
 - With `parent`, the file's favorites are appended after the existing children of that folder, again in file-name order.
 - **Duplicate full IDs** across files are an error: the later file is rejected as a whole, with a clear message naming both files. The earlier definition stays active.
-- A `parent` that doesn't exist, or points to a leaf, rejects that file.
-- A file that would turn an existing leaf into a folder (by adding children via `parent`) is rejected, so startable IDs never change silently.
+- A `parent` that doesn't exist rejects that file.
+- A `parent` that points to a leaf turns that leaf into a folder once the file adds children to it (e.g. a hand-written rough structure whose final leaves come from a generated file). The former leaf can no longer be started; its `kind` no longer applies.
 - **Errors are isolated per file:** an invalid file is skipped (or its last valid version stays active); all other files keep working.
 
 #### Tips for generators (documented)
@@ -504,7 +506,7 @@ A file can set `parent` (full ID of a folder) to hang its favorites under a fold
 | Overlapping retroactive entries | Retroactive entry takes precedence, without asking |
 | Editing notes | Not possible; a new note creates a new activity |
 | Timeline | Removed, possibly later |
-| Resume after restart | Not automatic; offered via notification |
+| Resume after restart | Not automatic; the popover asks what happened in between and what to continue with (also after unlocking the screen) |
 | Remote aw-server | URL freely configurable |
 | Scroll mode confirmation | Hotkey and/or dwell time |
 | Scroll mode scope | Start and stop only; no retroactive entries or notes |

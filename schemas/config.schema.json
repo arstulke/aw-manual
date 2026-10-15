@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/arstulke/aw-manual/main/schemas/config.schema.json",
+  "title": "aw-manual config.yaml",
+  "description": "Base configuration of aw-manual (schema version 1). Favorites are configured in separate files, see favorites.schema.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "duration": {
+      "type": "string",
+      "pattern": "^\\s*(\\d+(\\.\\d+)?\\s*(ms|s|sec|secs|m|min|mins|h|hr|hrs|d)\\s*)+$",
+      "description": "A duration: one or more <number><unit> parts with the units ms, s, m, h, d, e.g. 500ms, 30s, 15m, 1h30m, 1.5h or 1d."
+    },
+    "optionalDuration": {
+      "description": "A duration, or false to disable.",
+      "oneOf": [{ "$ref": "#/$defs/duration" }, { "const": false }, { "const": "off" }]
+    },
+    "hotkey": {
+      "description": "A key combination such as Ctrl+Alt+Space, or a mouse button Mouse4 … Mouse9. Empty, null or false disables the hotkey.",
+      "oneOf": [{ "type": "string" }, { "type": "null" }, { "const": false }]
+    },
+    "clock": {
+      "type": "string",
+      "pattern": "^([01]?\\d|2[0-3]):[0-5]\\d$",
+      "description": "A time of day such as \"08:00\" (quote it in YAML)."
+    }
+  },
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "pattern": "^https?://[^/]",
+          "default": "http://localhost:5600",
+          "description": "URL of the aw-server (local or remote)."
+        },
+        "bucket_id": {
+          "type": "string",
+          "minLength": 1,
+          "default": "aw-manual_{hostname}",
+          "description": "Bucket ID; {hostname} is replaced by the local host name."
+        },
+        "bucket_type": { "type": "string", "minLength": 1, "default": "manual.activity" },
+        "heartbeat_interval": {
+          "$ref": "#/$defs/duration",
+          "default": "60s",
+          "description": "Interval of heartbeats for the running activity (5s … 10m)."
+        }
+      }
+    },
+    "favorites": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dirs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": ["favorites.d"],
+          "description": "Folders with favorites files, loaded in this order. Relative paths are relative to the configuration folder; ~ is the home folder."
+        }
+      }
+    },
+    "hotkeys": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "popover": { "$ref": "#/$defs/hotkey", "default": "Ctrl+Alt+Space" },
+        "stop": { "$ref": "#/$defs/hotkey", "default": "Ctrl+Alt+S" },
+        "resume": { "$ref": "#/$defs/hotkey", "default": "Ctrl+Alt+R" },
+        "favorites": {
+          "description": "Hotkeys that start individual favorites: favorite ID → hotkey.",
+          "oneOf": [
+            { "type": "object", "additionalProperties": { "type": "string" } },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "tray": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "display": { "enum": ["icon", "elapsed", "since", "title", "template"], "default": "template" },
+        "template": {
+          "type": "string",
+          "default": "{title} · {elapsed}",
+          "description": "Placeholders: {title} {path} {elapsed} {since} {note}"
+        },
+        "elapsed_format": { "enum": ["1h 23m", "1:23", "1h 23m 45s", "1:23:45"], "default": "1h 23m" },
+        "time_format": { "enum": ["24h", "12h"], "default": "24h" },
+        "color_icon": { "type": "boolean", "default": true }
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "idle_reminder": { "$ref": "#/$defs/optionalDuration", "default": "15m" },
+        "long_running": { "$ref": "#/$defs/optionalDuration", "default": "3h" },
+        "after_restart": {
+          "oneOf": [{ "$ref": "#/$defs/optionalDuration" }, { "const": true }],
+          "default": "1m",
+          "description": "After a (re-)start of aw-manual or the computer: if aw-manual was stopped at least this long, ask what you did meanwhile, then what to continue with; false disables it (true = 1m)."
+        },
+        "after_unlock": {
+          "$ref": "#/$defs/optionalDuration",
+          "default": "1m",
+          "description": "After unlocking the screen: if it was locked at least this long, ask what you did meanwhile, then what to continue with; false disables it."
+        },
+        "offline": { "type": "boolean", "default": true },
+        "work_hours": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "days": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+                  }
+                },
+                { "type": "null" }
+              ],
+              "default": ["mon", "tue", "wed", "thu", "fri"]
+            },
+            "from": { "$ref": "#/$defs/clock", "default": "08:00" },
+            "to": { "$ref": "#/$defs/clock", "default": "18:00" }
+          }
+        }
+      }
+    },
+    "popover": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scroll": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "layout": {
+              "enum": ["tree", "levels"],
+              "default": "tree",
+              "description": "tree: all folders expanded, scrolling steps through the leaves only; levels: one folder level at a time."
+            },
+            "confirm_with_hotkey": { "type": "boolean", "default": true },
+            "dwell_confirm": { "type": "boolean", "default": false },
+            "dwell_time": { "$ref": "#/$defs/duration", "default": "2s" },
+            "timeout": {
+              "$ref": "#/$defs/duration",
+              "default": "10s",
+              "description": "Closes the popover without input after this time; must be longer than dwell_time."
+            },
+            "sensitivity": { "type": "number", "exclusiveMinimum": 0, "maximum": 100, "default": 1.0 },
+            "wrap_around": { "type": "boolean", "default": true },
+            "open_at_cursor": { "type": "boolean", "default": true },
+            "start_at": { "enum": ["running", "first"], "default": "running" },
+            "horizontal": {
+              "type": "boolean",
+              "default": false,
+              "description": "Horizontal scrolling / wheel tilt: left = back, right = confirm."
+            }
+          }
+        }
+      }
+    },
+    "cli": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "autostart_daemon": { "type": "boolean", "default": true }
+      }
+    },
+    "log": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": { "enum": ["error", "warn", "info", "debug", "trace"], "default": "info" }
+      }
+    },
+    "openaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Settings of the OpenAction plugin (Phase 2).",
+      "properties": {
+        "toggle_running": { "enum": ["stop", "none"], "default": "stop" }
+      }
+    }
+  }
+}

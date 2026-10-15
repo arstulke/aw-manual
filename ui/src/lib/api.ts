@@ -21,8 +21,6 @@ export interface Opened {
   favorite?: string;
   /** Open the note field for the running activity. */
   note?: boolean;
-  /** Ask what the user did during this AFK period (retroactive entry). */
-  afk?: { start: string; end: string; minutes: number; range: string };
 }
 
 export function onOpened(f: (opened: Opened) => void): Promise<UnlistenFn> {

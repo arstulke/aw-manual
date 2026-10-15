@@ -17,8 +17,6 @@
   let noteOpen = $state(false);
   /** A favorite waiting for its note (ask_note, Shift+Enter, right click). */
   let noteFor = $state<Favorite | null>(null);
-  /** Minutes of the AFK period the popover asks about (opened after returning). */
-  let afkMinutes = $state<number | null>(null);
   let retro = $state(false);
   let range = $state("");
   let preview = $state<{ text?: string; error?: string } | null>(null);
@@ -78,10 +76,6 @@
   });
   const source = $derived(mode === "scroll" ? "popover-scroll" : "popover");
 
-  function afkText(minutes: number): string {
-    return minutes < 60 ? `${minutes} minutes` : formatElapsed(minutes * 60, "1h 23m");
-  }
-
   function elapsedText(): string {
     if (!running || !snap) return "";
     return formatElapsed((now - Date.parse(running.start)) / 1000, snap.tray.elapsed_format);
@@ -139,7 +133,6 @@
     note = "";
     noteOpen = false;
     noteFor = null;
-    afkMinutes = null;
     retro = false;
     range = "";
     preview = null;
@@ -156,15 +149,6 @@
     const fav = opened?.favorite ? findFavorite(snap.favorites, opened.favorite) : null;
     if (fav && fav.type === "leaf") {
       await askNote(fav);
-      return;
-    }
-    if (opened?.afk) {
-      afkMinutes = opened.afk.minutes;
-      await enterKeyboard();
-      retro = true;
-      range = opened.afk.range;
-      await tick();
-      searchEl?.focus();
       return;
     }
     if (opened?.note && snap.status.running) {
@@ -747,9 +731,6 @@
         <button class="settings" onclick={openSettings} title="Settings (Ctrl+,)" aria-label="Settings">⚙</button>
       </div>
     {/if}
-    {#if afkMinutes !== null}
-      <div class="afk">What were you doing for the last {afkMinutes === 1 ? "minute" : afkText(afkMinutes)}? Pick a favorite to log it, or press <kbd>Esc</kbd>.</div>
-    {/if}
     {#if snap && snap.status.server.online === false}
       <div class="offline">aw-server unreachable – {snap.status.server.pending} entries pending</div>
     {/if}
@@ -885,11 +866,6 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .afk {
-    margin-top: 6px;
-    font-weight: 600;
-    color: var(--accent);
   }
   .offline {
     margin-top: 6px;

@@ -156,16 +156,6 @@
               "description": "Horizontal scrolling / wheel tilt: left = back, right = confirm."
             }
           }
-        },
-        "afk_prompt": {
-          "$ref": "#/$defs/optionalDuration",
-          "default": "15m",
-          "description": "After returning from an AFK period at least this long (aw-watcher-afk), open the popover and ask what you did; false disables it."
-        },
-        "afk_bucket": {
-          "type": "string",
-          "default": "aw-watcher-afk_{hostname}",
-          "description": "Bucket of aw-watcher-afk; {hostname} is replaced by the local host name."
         }
       }
     },

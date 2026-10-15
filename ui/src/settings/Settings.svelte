@@ -89,7 +89,6 @@
       "hotkeys.stop": c.hotkeys.stop ?? "",
       "hotkeys.resume": c.hotkeys.resume ?? "",
       "notifications.idle_reminder": c.notifications.idle_reminder,
-      "popover.afk_prompt": c.popover.afk_prompt,
       "notifications.long_running": c.notifications.long_running,
       "notifications.after_restart": c.notifications.after_restart,
       "notifications.offline": c.notifications.offline,
@@ -114,8 +113,6 @@
   let idleValue = $state("15m");
   let longOn = $state(true);
   let longValue = $state("3h");
-  let afkOn = $state(true);
-  let afkValue = $state("15m");
 
   async function load(resetForm: boolean) {
     try {
@@ -130,9 +127,6 @@
         const long = data.config.notifications.long_running;
         longOn = long !== false;
         longValue = long === false ? "3h" : long;
-        const afk = data.config.popover.afk_prompt;
-        afkOn = afk !== false;
-        afkValue = afk === false ? "15m" : afk;
       }
     } catch (e) {
       loadError = errorText(e);
@@ -143,7 +137,6 @@
     const f = { ...form };
     f["notifications.idle_reminder"] = idleOn ? idleValue : false;
     f["notifications.long_running"] = longOn ? longValue : false;
-    f["popover.afk_prompt"] = afkOn ? afkValue : false;
     const out: { path: string[]; value: any }[] = [];
     for (const [k, v] of Object.entries(f)) {
       if (JSON.stringify(v) !== JSON.stringify(original[k])) out.push({ path: k.split("."), value: v });
@@ -177,9 +170,6 @@
       const long = data.config.notifications.long_running;
       longOn = long !== false;
       longValue = long === false ? "3h" : long;
-      const afk = data.config.popover.afk_prompt;
-      afkOn = afk !== false;
-      afkValue = afk === false ? "15m" : afk;
     }
   }
 
@@ -438,10 +428,6 @@
           <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.wrap_around"]} /> Wrap around at the end of the list</label>
           <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.open_at_cursor"]} /> Open under the mouse pointer</label>
           <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.horizontal"]} /> Horizontal scrolling / wheel tilt: left = back, right = confirm</label>
-          <div class="row">
-            <label class="check"><input type="checkbox" bind:checked={afkOn} /> After returning from AFK (aw-watcher-afk), ask what I did if I was away for</label>
-            <input bind:value={afkValue} class="short" disabled={!afkOn} />
-          </div>
           <label>Initial highlight
             <select bind:value={form["popover.scroll.start_at"]}>
               <option value="running">The running activity</option>

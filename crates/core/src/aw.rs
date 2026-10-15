@@ -221,15 +221,6 @@ impl AwClient {
             .map_err(|e| AwError::Rejected(200, format!("invalid events response: {e}")))
     }
 
-    /// The latest `limit` events of a bucket (newest first).
-    pub async fn latest_events(&self, bucket: &str, limit: usize) -> Result<Vec<AwEvent>, AwError> {
-        let url = format!("{}/events?limit={limit}", self.bucket_url(bucket));
-        let resp = self.send(self.http.get(url)).await?;
-        resp.json()
-            .await
-            .map_err(|e| AwError::Rejected(200, format!("invalid events response: {e}")))
-    }
-
     pub async fn get_event(&self, bucket: &str, id: i64) -> Result<Option<AwEvent>, AwError> {
         let url = format!("{}/events/{}", self.bucket_url(bucket), id);
         match self.send(self.http.get(url)).await {

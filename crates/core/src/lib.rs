@@ -2,7 +2,6 @@
 //! the tracking state machine, the offline queue, the ActivityWatch client
 //! and the IPC protocol.
 
-pub mod afk;
 pub mod aw;
 pub mod config;
 pub mod display;

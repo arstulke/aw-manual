@@ -429,6 +429,12 @@
         case "Enter":
         case "ArrowRight":
           e.preventDefault();
+          if (e.key === "Enter" && e.shiftKey) {
+            // Shift+Enter: ask for a note first, then start the highlighted leaf.
+            const item = drill.current();
+            if (item.kind === "leaf") askNote(item.fav);
+            return;
+          }
           nav("confirm");
           return;
         case "Backspace":

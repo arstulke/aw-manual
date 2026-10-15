@@ -89,7 +89,7 @@ the favorites tree (all folders expanded, unless `layout: levels`).
 | ↑ / ↓, PgUp / PgDn | move the highlight |
 | scroll wheel | move the highlight through the leaves (search results or tree); confirm with Enter, a click, or the popover hotkey |
 | Enter | start the highlighted favorite (or open/close a folder in the tree) |
-| Shift+Enter, right click | ask for a note, then start the favorite with it (right click also works in scroll mode) |
+| Shift+Enter, right click | ask for a note, then start the favorite with it (both also work in scroll mode) |
 | → / ← | expand / collapse folders (tree, empty search) |
 | Esc | clear the search, then close |
 | Ctrl+N | note field |

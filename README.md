@@ -22,7 +22,7 @@ trims, or corrects activities on its own, for example based on AFK data.
 
 - **Popover** (global hotkey, tray, or `aw-manual popover`)
   - fuzzy search across all favorites and their path (`acm web dev` → *ACME › Website › Development*)
-  - fully keyboard-operable, with an expandable favorites tree in the configured order
+  - fully keyboard-operable, with the whole favorites tree in the configured order
   - optional note per activity; a new note while running starts a new entry
   - **retroactive entries**: `-30m`, `10:00-11:15`, `since 9:30`, `10:00 +45m`, `yesterday 16:00-17:30`
   - **scroll mode**: operate it with the hotkey and the scroll wheel only (a mouse side button plus the wheel is enough); confirm with the hotkey or by dwell time

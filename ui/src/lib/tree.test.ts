@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ancestorIds, parentId, visibleRows } from "./tree";
+import { leaves } from "./fuzzy";
+import { ancestorIds, backIndex, parentId } from "./tree";
 import type { Favorite } from "./types";
 
 const f = (id: string, children?: Favorite[]): Favorite => ({
@@ -19,21 +20,19 @@ const f = (id: string, children?: Favorite[]): Favorite => ({
 const roots = [f("a", [f("a/b", [f("a/b/c")]), f("a/d")]), f("e")];
 
 describe("tree", () => {
-  it("shows children of expanded folders only", () => {
-    expect(visibleRows(roots, new Set()).map((r) => r.fav.id)).toEqual(["a", "e"]);
-    expect(visibleRows(roots, new Set(["a"])).map((r) => [r.fav.id, r.depth])).toEqual([
-      ["a", 0],
-      ["a/b", 1],
-      ["a/d", 1],
-      ["e", 0],
-    ]);
-    expect(visibleRows(roots, new Set(["a", "a/b"])).map((r) => r.fav.id)).toEqual(["a", "a/b", "a/b/c", "a/d", "e"]);
-    // An expanded folder below a collapsed one stays hidden.
-    expect(visibleRows(roots, new Set(["a/b"])).map((r) => r.fav.id)).toEqual(["a", "e"]);
-  });
   it("parents", () => {
     expect(parentId("a/b/c")).toBe("a/b");
     expect(parentId("a")).toBeNull();
     expect(ancestorIds("a/b/c")).toEqual(["a", "a/b"]);
+  });
+  it("back jumps to the first leaf of the folder, then of the previous folder", () => {
+    const tree = [f("a", [f("a/x"), f("a/y")]), f("b", [f("b/p"), f("b/q"), f("b/r")]), f("e")];
+    const ls = leaves(tree);
+    expect(ls.map((l) => l.id)).toEqual(["a/x", "a/y", "b/p", "b/q", "b/r", "e"]);
+    expect(backIndex(ls, 4)).toBe(2);
+    expect(backIndex(ls, 2)).toBe(0);
+    expect(backIndex(ls, 0)).toBe(0);
+    expect(backIndex(ls, 5)).toBe(2);
+    expect(backIndex(leaves(roots), 0)).toBe(0);
   });
 });

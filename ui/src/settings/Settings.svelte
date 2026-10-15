@@ -77,14 +77,15 @@
     return {
       "server.url": c.server.url,
       "server.bucket_id": c.server.bucket_id,
-      "server.heartbeat_interval": c.server.heartbeat_interval,
+      "favorites.dirs": [...c.favorites.dirs],
+      "favorites.default_file": c.favorites.default_file,
       "cli.autostart_daemon": c.cli.autostart_daemon,
       "log.level": c.log.level,
       "tray.display": c.tray.display,
       "tray.template": c.tray.template,
-      "tray.elapsed_format": c.tray.elapsed_format,
-      "tray.time_format": c.tray.time_format,
       "tray.color_icon": c.tray.color_icon,
+      "format.elapsed": c.format.elapsed,
+      "format.time": c.format.time,
       "hotkeys.popover": c.hotkeys.popover ?? "",
       "hotkeys.stop": c.hotkeys.stop ?? "",
       "hotkeys.resume": c.hotkeys.resume ?? "",
@@ -96,13 +97,8 @@
       "notifications.work_hours.days": [...c.notifications.work_hours.days],
       "notifications.work_hours.from": c.notifications.work_hours.from,
       "notifications.work_hours.to": c.notifications.work_hours.to,
-      "popover.scroll.layout": s.layout,
       "popover.scroll.confirm_with_hotkey": s.confirm_with_hotkey,
-      "popover.scroll.dwell_confirm": s.dwell_confirm,
       "popover.scroll.dwell_time": s.dwell_time,
-      "popover.scroll.timeout": s.timeout,
-      "popover.scroll.sensitivity": s.sensitivity,
-      "popover.scroll.wrap_around": s.wrap_around,
       "popover.scroll.open_at_cursor": s.open_at_cursor,
       "popover.scroll.start_at": s.start_at,
       "popover.scroll.horizontal": s.horizontal,
@@ -118,6 +114,30 @@
   let restartValue = $state("1m");
   let unlockOn = $state(true);
   let unlockValue = $state("1m");
+  let dwellOn = $state(false);
+  let dwellValue = $state("2s");
+  // Favorites folders: one per line.
+  let dirsText = $state("");
+
+  /** Sets the helper fields (checkbox + duration, folder list) from the loaded configuration. */
+  function resetHelpers(c: Record<string, any>) {
+    const idle = c.notifications.idle_reminder;
+    idleOn = idle !== false;
+    idleValue = idle === false ? "15m" : idle;
+    const long = c.notifications.long_running;
+    longOn = long !== false;
+    longValue = long === false ? "3h" : long;
+    const unlock = c.notifications.after_unlock;
+    unlockOn = unlock !== false;
+    unlockValue = unlock === false ? "1m" : unlock;
+    const restart = c.notifications.after_restart;
+    restartOn = restart !== false;
+    restartValue = restart === false ? "1m" : restart;
+    const dwell = c.popover.scroll.dwell_time;
+    dwellOn = dwell !== false;
+    dwellValue = dwell === false ? "2s" : dwell;
+    dirsText = c.favorites.dirs.join("\n");
+  }
 
   async function load(resetForm: boolean) {
     try {
@@ -126,18 +146,7 @@
       if (resetForm) {
         original = fieldsFrom(data.config);
         form = structuredClone(original);
-        const idle = data.config.notifications.idle_reminder;
-        idleOn = idle !== false;
-        idleValue = idle === false ? "15m" : idle;
-        const long = data.config.notifications.long_running;
-        longOn = long !== false;
-        longValue = long === false ? "3h" : long;
-        const unlock = data.config.notifications.after_unlock;
-        unlockOn = unlock !== false;
-        unlockValue = unlock === false ? "1m" : unlock;
-        const restart = data.config.notifications.after_restart;
-        restartOn = restart !== false;
-        restartValue = restart === false ? "1m" : restart;
+        resetHelpers(data.config);
       }
     } catch (e) {
       loadError = errorText(e);
@@ -150,6 +159,11 @@
     f["notifications.long_running"] = longOn ? longValue : false;
     f["notifications.after_unlock"] = unlockOn ? unlockValue : false;
     f["notifications.after_restart"] = restartOn ? restartValue : false;
+    f["popover.scroll.dwell_time"] = dwellOn ? dwellValue : false;
+    f["favorites.dirs"] = dirsText
+      .split("\n")
+      .map((d) => d.trim())
+      .filter(Boolean);
     const out: { path: string[]; value: any }[] = [];
     for (const [k, v] of Object.entries(f)) {
       if (JSON.stringify(v) !== JSON.stringify(original[k])) out.push({ path: k.split("."), value: v });
@@ -176,20 +190,7 @@
   function revert() {
     form = structuredClone(original);
     saveErrors = [];
-    if (data) {
-      const idle = data.config.notifications.idle_reminder;
-      idleOn = idle !== false;
-      idleValue = idle === false ? "15m" : idle;
-      const long = data.config.notifications.long_running;
-      longOn = long !== false;
-      longValue = long === false ? "3h" : long;
-      const unlock = data.config.notifications.after_unlock;
-      unlockOn = unlock !== false;
-      unlockValue = unlock === false ? "1m" : unlock;
-      const restart = data.config.notifications.after_restart;
-      restartOn = restart !== false;
-      restartValue = restart === false ? "1m" : restart;
-    }
+    if (data) resetHelpers(data.config);
   }
 
   function toggleDay(d: string) {
@@ -326,7 +327,6 @@
           <p class="hint">A local or remote aw-server. Entries are buffered while it is unreachable.</p>
           <label>Bucket ID <input bind:value={form["server.bucket_id"]} /></label>
           <p class="hint"><code>{"{hostname}"}</code> is replaced by this computer's name.</p>
-          <label>Heartbeat interval <input bind:value={form["server.heartbeat_interval"]} class="short" /></label>
           <label>Log level
             <select bind:value={form["log.level"]}>
               {#each ["error", "warn", "info", "debug", "trace"] as l}<option value={l}>{l}</option>{/each}
@@ -334,6 +334,30 @@
           </label>
           <label class="check"><input type="checkbox" bind:checked={form["cli.autostart_daemon"]} /> Start the daemon automatically when the CLI needs it</label>
           <label class="check"><input type="checkbox" checked={data.autostart} onchange={(e) => setAutostart(e.currentTarget.checked)} /> Start aw-manual at login</label>
+        </section>
+        <h3>Display format</h3>
+        <section>
+          <p class="hint">Used by the tray, the popover, the CLI and notifications.</p>
+          <label>Elapsed time
+            <select bind:value={form["format.elapsed"]}>
+              {#each ["1h 23m", "1:23", "1h 23m 45s", "1:23:45"] as f}<option value={f}>{f}</option>{/each}
+            </select>
+          </label>
+          <label>Clock
+            <select bind:value={form["format.time"]}>
+              <option value="24h">24h (09:30)</option>
+              <option value="12h">12h (9:30 AM)</option>
+            </select>
+          </label>
+        </section>
+        <h3>Favorites files</h3>
+        <section>
+          <label>Folders, loaded in this order (one per line)
+            <textarea bind:value={dirsText} rows="3" class="mono" spellcheck="false"></textarea>
+          </label>
+          <p class="hint">Relative to the configuration folder; <code>~</code> is your home folder.</p>
+          <label>File for new top-level favorites <input bind:value={form["favorites.default_file"]} class="mono" /></label>
+          <p class="hint">A file name in the first folder; created when needed.</p>
         </section>
         <h3>Status</h3>
         <section class="info">
@@ -363,17 +387,7 @@
             <label>Template <input bind:value={form["tray.template"]} /></label>
             <p class="hint">Placeholders: <code>{"{title} {path} {elapsed} {since} {note}"}</code></p>
           {/if}
-          <label>Elapsed time format
-            <select bind:value={form["tray.elapsed_format"]}>
-              {#each ["1h 23m", "1:23", "1h 23m 45s", "1:23:45"] as f}<option value={f}>{f}</option>{/each}
-            </select>
-          </label>
-          <label>Clock format
-            <select bind:value={form["tray.time_format"]}>
-              <option value="24h">24h (09:30)</option>
-              <option value="12h">12h (9:30 AM)</option>
-            </select>
-          </label>
+          <p class="hint">Elapsed time and clock formats are set under General.</p>
           <label class="check"><input type="checkbox" bind:checked={form["tray.color_icon"]} /> Tint the icon in the favorite's color</label>
           {#if data.os === "windows"}
             <p class="hint">Windows cannot show text in the notification area; the tooltip shows the full information.</p>
@@ -439,22 +453,13 @@
         <h2>Popover – scroll mode</h2>
         <section>
           <p class="hint">Operate the popover with the hotkey and the scroll wheel only: scroll to select, confirm with the hotkey or by keeping the highlight on an item.</p>
-          <label>Layout
-            <select bind:value={form["popover.scroll.layout"]}>
-              <option value="tree">All folders expanded, scroll through the leaves</option>
-              <option value="levels">One folder level at a time</option>
-            </select>
-          </label>
           <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.confirm_with_hotkey"]} /> Confirm by pressing the hotkey again</label>
           <div class="row">
-            <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.dwell_confirm"]} /> Confirm by dwell time</label>
-            <input bind:value={form["popover.scroll.dwell_time"]} class="short" />
+            <label class="check"><input type="checkbox" bind:checked={dwellOn} /> Confirm when an item stays highlighted for</label>
+            <input bind:value={dwellValue} class="short" disabled={!dwellOn} />
           </div>
-          <label>Close without input after <input bind:value={form["popover.scroll.timeout"]} class="short" /></label>
-          <label>Scroll sensitivity (threshold factor) <input type="number" step="0.1" min="0.1" bind:value={form["popover.scroll.sensitivity"]} class="short" /></label>
-          <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.wrap_around"]} /> Wrap around at the end of the list</label>
           <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.open_at_cursor"]} /> Open under the mouse pointer</label>
-          <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.horizontal"]} /> Horizontal scrolling / wheel tilt: left = back, right = confirm</label>
+          <label class="check"><input type="checkbox" bind:checked={form["popover.scroll.horizontal"]} /> Horizontal scrolling / wheel tilt: right = confirm, left = confirm with a note</label>
           <label>Initial highlight
             <select bind:value={form["popover.scroll.start_at"]}>
               <option value="running">The running activity</option>
@@ -467,6 +472,7 @@
         <p class="hint">
           Favorites are read from <code>{data.favorite_dirs.join(", ")}</code>. Changes made here are written to the file
           that defines the favorite; new top-level favorites go to <code>{data.ui_file}</code>. Generated files are read-only.
+          Folders and the file for new favorites are set under General.
         </p>
         {#each data.files.filter((f) => f.status !== "ok") as f}
           <div class="banner error">
@@ -637,6 +643,9 @@
   }
   input.short {
     width: 110px;
+  }
+  textarea {
+    resize: vertical;
   }
   .mono,
   code {

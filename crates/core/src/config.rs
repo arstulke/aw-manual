@@ -12,6 +12,13 @@ use crate::yaml::{self, Node, NodeKind, YamlError};
 
 pub const CONFIG_FILE: &str = "config.yaml";
 pub const DEFAULT_FAVORITES_DIR: &str = "favorites.d";
+/// File (in the first favorites folder) that receives new top-level favorites
+/// created in the settings window, unless `favorites.default_file` says otherwise.
+pub const DEFAULT_FAVORITES_FILE: &str = "00-ui.yaml";
+/// `type` of the ActivityWatch bucket aw-manual creates.
+pub const BUCKET_TYPE: &str = "manual.activity";
+/// How often the running activity is sent to aw-server as a heartbeat.
+pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
 /// Highest `schema_version` this build understands.
 pub const SCHEMA_VERSION: i64 = 1;
 
@@ -21,6 +28,7 @@ pub struct Config {
     pub favorites: FavoritesConfig,
     pub hotkeys: HotkeysConfig,
     pub tray: TrayConfig,
+    pub format: FormatConfig,
     pub notifications: NotificationsConfig,
     pub popover: PopoverConfig,
     pub cli: CliConfig,
@@ -33,14 +41,14 @@ pub struct ServerConfig {
     pub url: String,
     /// Bucket ID; `{hostname}` is replaced by the local host name.
     pub bucket_id: String,
-    pub bucket_type: String,
-    #[serde(serialize_with = "ser_duration")]
-    pub heartbeat_interval: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct FavoritesConfig {
     pub dirs: Vec<String>,
+    /// File name in the first favorites folder for new top-level favorites
+    /// created in the settings window.
+    pub default_file: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -66,9 +74,15 @@ pub enum TrayDisplay {
 pub struct TrayConfig {
     pub display: TrayDisplay,
     pub template: String,
-    pub elapsed_format: ElapsedFormat,
-    pub time_format: TimeFormat,
     pub color_icon: bool,
+}
+
+/// How durations and clock times are shown everywhere (tray, popover, CLI,
+/// notifications).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FormatConfig {
+    pub elapsed: ElapsedFormat,
+    pub time: TimeFormat,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -107,30 +121,16 @@ pub enum StartAt {
     First,
 }
 
-/// How scroll mode shows the favorites.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ScrollLayout {
-    /// The whole tree, expanded; scrolling steps through the leaves only.
-    Tree,
-    /// One folder level at a time (confirm opens a folder, "‹ Back" leaves it).
-    Levels,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ScrollConfig {
-    pub layout: ScrollLayout,
     pub confirm_with_hotkey: bool,
-    pub dwell_confirm: bool,
-    #[serde(serialize_with = "ser_duration")]
-    pub dwell_time: Duration,
-    #[serde(serialize_with = "ser_duration")]
-    pub timeout: Duration,
-    pub sensitivity: f64,
-    pub wrap_around: bool,
+    /// Confirms the highlighted item after it was highlighted this long
+    /// (`None` = disabled).
+    #[serde(serialize_with = "ser_opt_duration")]
+    pub dwell_time: Option<Duration>,
     pub open_at_cursor: bool,
     pub start_at: StartAt,
-    /// Horizontal scrolling / wheel tilt acts as back (left) and confirm (right).
+    /// Horizontal scrolling / wheel tilt: right confirms, left confirms with a note.
     pub horizontal: bool,
 }
 
@@ -160,10 +160,6 @@ pub enum ToggleRunning {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OpenActionConfig {
     pub toggle_running: ToggleRunning,
-}
-
-fn ser_duration<S: serde::Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&format_duration(*d))
 }
 
 fn ser_opt_duration<S: serde::Serializer>(d: &Option<Duration>, s: S) -> Result<S::Ok, S::Error> {
@@ -217,11 +213,10 @@ impl Default for Config {
             server: ServerConfig {
                 url: "http://localhost:5600".into(),
                 bucket_id: "aw-manual_{hostname}".into(),
-                bucket_type: "manual.activity".into(),
-                heartbeat_interval: Duration::from_secs(60),
             },
             favorites: FavoritesConfig {
                 dirs: vec![DEFAULT_FAVORITES_DIR.into()],
+                default_file: DEFAULT_FAVORITES_FILE.into(),
             },
             hotkeys: HotkeysConfig {
                 popover: Some("Ctrl+Alt+Space".into()),
@@ -232,9 +227,11 @@ impl Default for Config {
             tray: TrayConfig {
                 display: TrayDisplay::Template,
                 template: "{title} · {elapsed}".into(),
-                elapsed_format: ElapsedFormat::HoursMinutes,
-                time_format: TimeFormat::H24,
                 color_icon: true,
+            },
+            format: FormatConfig {
+                elapsed: ElapsedFormat::HoursMinutes,
+                time: TimeFormat::H24,
             },
             notifications: NotificationsConfig {
                 idle_reminder: Some(Duration::from_secs(15 * 60)),
@@ -256,13 +253,8 @@ impl Default for Config {
             },
             popover: PopoverConfig {
                 scroll: ScrollConfig {
-                    layout: ScrollLayout::Tree,
                     confirm_with_hotkey: true,
-                    dwell_confirm: false,
-                    dwell_time: Duration::from_secs(2),
-                    timeout: Duration::from_secs(10),
-                    sensitivity: 1.0,
-                    wrap_around: true,
+                    dwell_time: None,
                     open_at_cursor: true,
                     start_at: StartAt::Running,
                     horizontal: false,
@@ -283,52 +275,62 @@ impl Default for Config {
 
 /// The commented configuration written on first start.
 pub const DEFAULT_CONFIG_YAML: &str = r##"# aw-manual base configuration
+# All settings are optional; the values below are the defaults.
 # Favorites live in separate files, see favorites.d/
 schema_version: 1
 
 server:
   url: http://localhost:5600        # a remote aw-server is possible as well
-  bucket_id: "aw-manual_{hostname}"
-  heartbeat_interval: 60s
+  bucket_id: "aw-manual_{hostname}" # {hostname} = this computer's name
 
 favorites:
-  dirs:                             # loaded in this order
+  dirs:                             # loaded in this order; relative to this folder, ~ = home
     - favorites.d
+  default_file: 00-ui.yaml          # new top-level favorites from the settings window (in the first folder)
 
 hotkeys:
-  popover: Ctrl+Alt+Space           # alternatively a mouse button, e.g. Mouse4
+  popover: Ctrl+Alt+Space           # alternatively a mouse button, e.g. Mouse4; empty or false disables
   stop: Ctrl+Alt+S
   resume: Ctrl+Alt+R
+  favorites:                        # favorite ID → hotkey
+    # acme/website/development: Ctrl+Alt+1
 
 tray:
   display: template                 # icon | elapsed | since | title | template
   template: "{title} · {elapsed}"   # {title} {path} {elapsed} {since} {note}
-  elapsed_format: 1h 23m            # "1h 23m" | "1:23" | "1h 23m 45s" | "1:23:45"
-  time_format: 24h                  # 24h | 12h
   color_icon: true                  # tint the icon in the favorite's color
+
+format:                             # used by the tray, popover, CLI and notifications
+  elapsed: 1h 23m                   # "1h 23m" | "1:23" | "1h 23m 45s" | "1:23:45"
+  time: 24h                         # 24h | 12h
 
 notifications:
   idle_reminder: 15m                # false to disable
   long_running: 3h                  # false to disable
   after_restart: 1m                 # after a (re-)start: ask what you did if aw-manual was stopped at least 1m; false to disable
   after_unlock: 1m                  # after unlocking: ask what you did if the screen was locked at least 1m; false to disable
-  offline: true
-  work_hours:
+  offline: true                     # tell me when entries are buffered (aw-server unreachable)
+  work_hours:                       # for the idle reminder
     days: [mon, tue, wed, thu, fri]
     from: "08:00"
     to: "18:00"
 
 popover:
   scroll:
-    layout: tree                    # tree (all folders expanded) | levels (one folder at a time)
-    confirm_with_hotkey: true
-    dwell_confirm: false            # confirm by dwell time
-    dwell_time: 2s
-    timeout: 10s                    # must be longer than dwell_time
-    sensitivity: 1.0                # threshold factor per step
-    wrap_around: true
+    confirm_with_hotkey: true       # pressing the popover hotkey again confirms
+    dwell_time: false               # e.g. 2s: confirm when an item stays highlighted that long; false to disable
     open_at_cursor: true
     start_at: running               # running | first
+    horizontal: false               # horizontal scrolling / wheel tilt: right = confirm, left = confirm with a note
+
+cli:
+  autostart_daemon: true            # the CLI starts the daemon if needed
+
+log:
+  level: info                       # error | warn | info | debug | trace
+
+openaction:                         # phase 2 (OpenAction plugin)
+  toggle_running: stop              # stop | none
 "##;
 
 /// Collects validation errors for one file.
@@ -433,19 +435,6 @@ fn read_bool(node: Option<&Node>, path: &str, target: &mut bool, errs: &mut Erro
         match n.as_bool() {
             Some(b) => *target = b,
             None => errs.push(n, format!("\"{path}\" must be true or false")),
-        }
-    }
-}
-
-fn read_duration(node: Option<&Node>, path: &str, target: &mut Duration, errs: &mut Errors) {
-    if let Some(n) = node {
-        match n.as_scalar().map(parse_duration) {
-            Some(Ok(d)) => *target = d,
-            Some(Err(e)) => errs.push(n, format!("\"{path}\": {e}")),
-            None => errs.push(
-                n,
-                format!("\"{path}\" must be a duration such as 30s, 15m or 1h"),
-            ),
         }
     }
 }
@@ -576,6 +565,7 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
             "favorites",
             "hotkeys",
             "tray",
+            "format",
             "notifications",
             "popover",
             "cli",
@@ -602,12 +592,7 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
     }
 
     if let Some(server_node) = entry(top, "server") {
-        let s = section(
-            server_node,
-            "server",
-            &["url", "bucket_id", "bucket_type", "heartbeat_interval"],
-            &mut errs,
-        );
+        let s = section(server_node, "server", &["url", "bucket_id"], &mut errs);
         read_string(
             entry(s, "url"),
             "server.url",
@@ -632,33 +617,10 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
                 errs.push(n, "server.bucket_id must not contain \"/\"");
             }
         }
-        read_string(
-            entry(s, "bucket_type"),
-            "server.bucket_type",
-            &mut cfg.server.bucket_type,
-            &mut errs,
-        );
-        if let Some(n) = entry(s, "bucket_type") {
-            if cfg.server.bucket_type.trim().is_empty() {
-                errs.push(n, "server.bucket_type must not be empty");
-            }
-        }
-        read_duration(
-            entry(s, "heartbeat_interval"),
-            "server.heartbeat_interval",
-            &mut cfg.server.heartbeat_interval,
-            &mut errs,
-        );
-        if let Some(n) = entry(s, "heartbeat_interval") {
-            let d = cfg.server.heartbeat_interval;
-            if d < Duration::from_secs(5) || d > Duration::from_secs(600) {
-                errs.push(n, "server.heartbeat_interval must be between 5s and 10m");
-            }
-        }
     }
 
     if let Some(fav_node) = entry(top, "favorites") {
-        let s = section(fav_node, "favorites", &["dirs"], &mut errs);
+        let s = section(fav_node, "favorites", &["dirs", "default_file"], &mut errs);
         if let Some(n) = entry(s, "dirs") {
             match n.as_seq() {
                 Some(items) => {
@@ -672,6 +634,17 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
                     cfg.favorites.dirs = dirs;
                 }
                 None => errs.push(n, "favorites.dirs must be a list of folders"),
+            }
+        }
+        read_string(
+            entry(s, "default_file"),
+            "favorites.default_file",
+            &mut cfg.favorites.default_file,
+            &mut errs,
+        );
+        if let Some(n) = entry(s, "default_file") {
+            if let Err(e) = validate_favorites_file_name(&cfg.favorites.default_file) {
+                errs.push(n, format!("favorites.default_file: {e}"));
             }
         }
     }
@@ -756,13 +729,7 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
         let s = section(
             tray_node,
             "tray",
-            &[
-                "display",
-                "template",
-                "elapsed_format",
-                "time_format",
-                "color_icon",
-            ],
+            &["display", "template", "color_icon"],
             &mut errs,
         );
         read_enum(
@@ -789,24 +756,28 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
                 errs.push(n, format!("tray.template: {e}"));
             }
         }
-        read_enum(
-            entry(s, "elapsed_format"),
-            "tray.elapsed_format",
-            &ElapsedFormat::ALL,
-            &mut cfg.tray.elapsed_format,
-            &mut errs,
-        );
-        read_enum(
-            entry(s, "time_format"),
-            "tray.time_format",
-            &[("24h", TimeFormat::H24), ("12h", TimeFormat::H12)],
-            &mut cfg.tray.time_format,
-            &mut errs,
-        );
         read_bool(
             entry(s, "color_icon"),
             "tray.color_icon",
             &mut cfg.tray.color_icon,
+            &mut errs,
+        );
+    }
+
+    if let Some(f_node) = entry(top, "format") {
+        let s = section(f_node, "format", &["elapsed", "time"], &mut errs);
+        read_enum(
+            entry(s, "elapsed"),
+            "format.elapsed",
+            &ElapsedFormat::ALL,
+            &mut cfg.format.elapsed,
+            &mut errs,
+        );
+        read_enum(
+            entry(s, "time"),
+            "format.time",
+            &[("24h", TimeFormat::H24), ("12h", TimeFormat::H12)],
+            &mut cfg.format.time,
             &mut errs,
         );
     }
@@ -837,16 +808,12 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
             &mut cfg.notifications.long_running,
             &mut errs,
         );
-        // `true` (older configurations) keeps the default minimum.
-        match entry(s, "after_restart") {
-            Some(n) if n.as_bool() == Some(true) => {}
-            n => read_opt_duration(
-                n,
-                "notifications.after_restart",
-                &mut cfg.notifications.after_restart,
-                &mut errs,
-            ),
-        }
+        read_opt_duration(
+            entry(s, "after_restart"),
+            "notifications.after_restart",
+            &mut cfg.notifications.after_restart,
+            &mut errs,
+        );
         read_opt_duration(
             entry(s, "after_unlock"),
             "notifications.after_unlock",
@@ -916,13 +883,8 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
                 sc_node,
                 "popover.scroll",
                 &[
-                    "layout",
                     "confirm_with_hotkey",
-                    "dwell_confirm",
                     "dwell_time",
-                    "timeout",
-                    "sensitivity",
-                    "wrap_around",
                     "open_at_cursor",
                     "start_at",
                     "horizontal",
@@ -930,53 +892,16 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
                 &mut errs,
             );
             let sc = &mut cfg.popover.scroll;
-            read_enum(
-                entry(s, "layout"),
-                "popover.scroll.layout",
-                &[
-                    ("tree", ScrollLayout::Tree),
-                    ("levels", ScrollLayout::Levels),
-                ],
-                &mut sc.layout,
-                &mut errs,
-            );
             read_bool(
                 entry(s, "confirm_with_hotkey"),
                 "popover.scroll.confirm_with_hotkey",
                 &mut sc.confirm_with_hotkey,
                 &mut errs,
             );
-            read_bool(
-                entry(s, "dwell_confirm"),
-                "popover.scroll.dwell_confirm",
-                &mut sc.dwell_confirm,
-                &mut errs,
-            );
-            read_duration(
+            read_opt_duration(
                 entry(s, "dwell_time"),
                 "popover.scroll.dwell_time",
                 &mut sc.dwell_time,
-                &mut errs,
-            );
-            read_duration(
-                entry(s, "timeout"),
-                "popover.scroll.timeout",
-                &mut sc.timeout,
-                &mut errs,
-            );
-            if let Some(n) = entry(s, "sensitivity") {
-                match n.as_f64() {
-                    Some(v) if v > 0.0 && v <= 100.0 => sc.sensitivity = v,
-                    _ => errs.push(
-                        n,
-                        "popover.scroll.sensitivity must be a number greater than 0",
-                    ),
-                }
-            }
-            read_bool(
-                entry(s, "wrap_around"),
-                "popover.scroll.wrap_around",
-                &mut sc.wrap_around,
                 &mut errs,
             );
             read_bool(
@@ -998,17 +923,6 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
                 &mut sc.horizontal,
                 &mut errs,
             );
-            if sc.dwell_time.is_zero() {
-                if let Some(n) = entry(s, "dwell_time") {
-                    errs.push(n, "popover.scroll.dwell_time must be longer than 0");
-                }
-            }
-            if sc.timeout <= sc.dwell_time {
-                let n = entry(s, "timeout")
-                    .or(entry(s, "dwell_time"))
-                    .unwrap_or(sc_node);
-                errs.push(n, "popover.scroll.timeout must be longer than dwell_time");
-            }
         }
     }
 
@@ -1073,6 +987,20 @@ pub fn validate_server_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// `favorites.default_file`: a plain `.yaml` / `.yml` file name that the
+/// favorites loader doesn't skip.
+pub fn validate_favorites_file_name(name: &str) -> Result<(), String> {
+    if name.contains('/') || name.contains('\\') {
+        return Err(format!("\"{name}\" must be a file name, not a path"));
+    }
+    if !crate::favorites::is_favorites_file(name) {
+        return Err(format!(
+            "\"{name}\" must end in .yaml or .yml and must not start with \".\""
+        ));
+    }
+    Ok(())
+}
+
 impl Config {
     /// The bucket ID with `{hostname}` replaced.
     pub fn bucket_id(&self, hostname: &str) -> String {
@@ -1081,7 +1009,7 @@ impl Config {
 
     /// AW `pulsetime` belonging to the heartbeat interval.
     pub fn pulsetime(&self) -> Duration {
-        self.server.heartbeat_interval.mul_f64(1.5)
+        HEARTBEAT_INTERVAL.mul_f64(1.5)
     }
 
     /// Favorites directories, resolved against the configuration directory.
@@ -1159,7 +1087,6 @@ mod tests {
 server:
   url: http://localhost:5600
   bucket_id: "aw-manual_{hostname}"
-  heartbeat_interval: 60s
 favorites:
   dirs:
     - favorites.d
@@ -1169,9 +1096,10 @@ hotkeys:
 tray:
   display: template
   template: "{title} · {elapsed}"
-  elapsed_format: 1h 23m
-  time_format: 24h
   color_icon: true
+format:
+  elapsed: 1:23
+  time: 12h
 notifications:
   idle_reminder: 15m
   long_running: 3h
@@ -1181,32 +1109,28 @@ notifications:
     to: "18:00"
 popover:
   scroll:
-    layout: levels
     confirm_with_hotkey: true
-    dwell_confirm: false
     dwell_time: 2s
-    timeout: 10s
-    sensitivity: 1.0
-    wrap_around: false
     open_at_cursor: true
     start_at: running
 openaction:
   toggle_running: stop
 "#;
         let c = parse_config(src).unwrap();
-        assert_eq!(c.server.heartbeat_interval, Duration::from_secs(60));
         assert_eq!(c.pulsetime(), Duration::from_secs(90));
         assert_eq!(c.bucket_id("box"), "aw-manual_box");
-        assert_eq!(c.popover.scroll.layout, ScrollLayout::Levels);
+        assert_eq!(c.format.elapsed, ElapsedFormat::Clock);
+        assert_eq!(c.format.time, TimeFormat::H12);
+        assert_eq!(c.popover.scroll.dwell_time, Some(Duration::from_secs(2)));
     }
 
     #[test]
     fn errors_with_lines() {
-        let src = "server:\n  url: ftp://x\n  heartbet: 5s\ntray:\n  display: fancy\n";
+        let src = "server:\n  url: ftp://x\n  bucket: x\ntray:\n  display: fancy\n";
         let errs = parse_config(src).unwrap_err();
         let lines: Vec<usize> = errs.iter().map(|e| e.line).collect();
         assert_eq!(lines, vec![2, 3, 5], "{errs:?}");
-        assert!(errs[1].message.contains("heartbet"));
+        assert!(errs[1].message.contains("bucket"));
     }
 
     #[test]
@@ -1220,7 +1144,6 @@ openaction:
                 .notifications
                 .after_restart
         };
-        assert_eq!(restart("true"), Some(Duration::from_secs(60)));
         assert_eq!(restart("10m"), Some(Duration::from_secs(600)));
         assert_eq!(restart("false"), None);
         assert_eq!(
@@ -1242,10 +1165,50 @@ openaction:
     }
 
     #[test]
-    fn timeout_must_exceed_dwell() {
-        let errs =
-            parse_config("popover:\n  scroll:\n    dwell_time: 5s\n    timeout: 5s\n").unwrap_err();
-        assert!(errs[0].message.contains("timeout"));
+    fn after_restart_true_is_an_error() {
+        assert!(parse_config("notifications:\n  after_restart: true\n").is_err());
+    }
+
+    #[test]
+    fn dwell_time() {
+        let dwell = |v: &str| {
+            parse_config(&format!("popover:\n  scroll:\n    dwell_time: {v}\n"))
+                .map(|c| c.popover.scroll.dwell_time)
+        };
+        assert_eq!(dwell("false").unwrap(), None);
+        assert_eq!(dwell("1500ms").unwrap(), Some(Duration::from_millis(1500)));
+        assert!(dwell("0s").is_err());
+        assert!(dwell("true").is_err());
+    }
+
+    #[test]
+    fn removed_settings_are_unknown() {
+        for src in [
+            "server:\n  bucket_type: x\n",
+            "server:\n  heartbeat_interval: 30s\n",
+            "tray:\n  elapsed_format: 1:23\n",
+            "tray:\n  time_format: 12h\n",
+            "popover:\n  scroll:\n    layout: tree\n",
+            "popover:\n  scroll:\n    dwell_confirm: true\n",
+            "popover:\n  scroll:\n    wrap_around: true\n",
+            "popover:\n  scroll:\n    sensitivity: 1.0\n",
+            "popover:\n  scroll:\n    timeout: 10s\n",
+        ] {
+            let errs = parse_config(src).unwrap_err();
+            assert!(
+                errs[0].message.contains("unknown setting"),
+                "{src}: {errs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn favorites_default_file() {
+        let c = parse_config("favorites:\n  default_file: 05-mine.yml\n").unwrap();
+        assert_eq!(c.favorites.default_file, "05-mine.yml");
+        assert!(parse_config("favorites:\n  default_file: sub/x.yaml\n").is_err());
+        assert!(parse_config("favorites:\n  default_file: .hidden.yaml\n").is_err());
+        assert!(parse_config("favorites:\n  default_file: notes.txt\n").is_err());
     }
 
     #[test]

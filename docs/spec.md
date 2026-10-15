@@ -150,26 +150,24 @@ The popover must be fully operable without keyboard, mouse click or touch. **The
 **Scope:** Scroll mode covers **starting and stopping** activities only. Retroactive entries and notes are deliberately not available in scroll mode; they remain in keyboard mode.
 
 - **Open:** Hotkey. Focus is immediately on the favorites list.
-- **Layout** (`popover.scroll.layout`): `tree` (default) shows the whole tree expanded, with folders as headings; `levels` shows one hierarchy level at a time.
-- **Select:** Scrolling moves the highlight item by item through the list, in the fixed configured order. In the `tree` layout only leaves (and the navigation items) can be highlighted.
+- **Layout:** the whole tree expanded, with folders as headings.
+- **Select:** Scrolling moves the highlight item by item through the list, in the fixed configured order. Only leaves (and the navigation items) can be highlighted.
 - **Confirm**, two ways (can be enabled individually or combined):
   - Press the **hotkey** again (default: on)
-  - **Dwell time:** the highlight stays on an item for a configurable time (default 2 s) (default: off). A progress bar on the highlighted item shows the countdown; any scroll resets it. Dwell only starts after the first scroll movement, so merely opening the popover triggers nothing.
+  - **Dwell time:** the highlight stays on an item for a configurable time (`popover.scroll.dwell_time`, e.g. 2 s; default: off). A progress bar on the highlighted item shows the countdown; any scroll resets it. Dwell only starts after the first scroll movement, so merely opening the popover triggers nothing.
 - **Effect of confirming:**
-  - On a folder (e.g. client, `levels` layout): opens the sub-level
   - On a leaf (e.g. task): starts the activity and closes the popover
   - On the already running activity: closes the popover without change (no restart)
 - **Navigation items** inside the list, also reachable by scrolling:
-  - "‹ Back" as the first item of every sub-level (`levels` layout)
   - "■ Stop" as the first item of the top level while an activity is running
   - "✕ Cancel" as the last item
-- **Abort without input:** The popover closes after a configurable timeout (default 10 s) without changes. The timeout must be longer than the dwell time.
+- **Abort without input:** The popover closes after 10 s without input (longer when the dwell time needs it).
 - **Start position:** On open, the highlight is on the running activity or the first item (configurable).
 - **Scroll behavior:**
   - Default: one notch of the mouse wheel = one step
-  - Deltas are accumulated, one step per threshold, so high-resolution wheels and touchpads don't "race through"; sensitivity configurable
-  - Wrap around at the end of the list or stop there (configurable, default: wrap around)
-  - Horizontal scrolling or wheel tilt (if available) optionally acts as Back/Confirm
+  - Deltas are accumulated, one step per threshold, so high-resolution wheels and touchpads don't "race through"
+  - Wrap around at the end of the list
+  - Horizontal scrolling or wheel tilt (if available) optionally acts as Confirm (right) and Confirm with a note (left)
 - **Readability:** The highlighted item is clearly emphasized and shown with its full path, since search isn't available without a keyboard.
 
 **Input abstraction:** Internally the popover works with abstract navigation commands `next`, `prev`, `confirm`, `back`, `cancel`. They can be triggered by:
@@ -320,12 +318,12 @@ Configuration is written in **YAML** and split into two parts: the **base config
 server:
   url: http://localhost:5600        # remote server also possible
   bucket_id: "aw-manual_{hostname}"
-  heartbeat_interval: 60s
 
 favorites:
   dirs:                             # loaded in this order; default: [favorites.d]
     - favorites.d
     # - ~/Sync/aw-manual-favorites  # e.g. a shared or synced folder
+  default_file: 00-ui.yaml          # new top-level favorites from the settings window
 
 hotkeys:
   popover: Ctrl+Alt+Space           # alternatively a mouse button, e.g. Mouse4
@@ -334,9 +332,11 @@ hotkeys:
 tray:
   display: template                 # icon | elapsed | since | title | template
   template: "{title} · {elapsed}"
-  elapsed_format: 1h 23m            # "1h 23m" | "1:23"
-  time_format: 24h                  # 24h | 12h
   color_icon: true                  # tint the icon in the favorite's color
+
+format:                             # tray, popover, CLI, notifications
+  elapsed: 1h 23m                   # "1h 23m" | "1:23"
+  time: 24h                         # 24h | 12h
 
 notifications:
   idle_reminder: 15m
@@ -348,13 +348,8 @@ notifications:
 
 popover:
   scroll:
-    layout: tree                    # tree | levels
     confirm_with_hotkey: true
-    dwell_confirm: false            # confirm by dwell time
-    dwell_time: 2s
-    timeout: 10s                    # must be longer than dwell_time
-    sensitivity: 1.0                # threshold factor per step
-    wrap_around: true
+    dwell_time: false               # e.g. 2s: confirm by dwell time
     open_at_cursor: true
     start_at: running               # running | first
 
@@ -450,7 +445,7 @@ A file can set `parent` (full ID of a folder or leaf) to hang its favorites unde
 - Validation with clear error messages; with an invalid `config.yaml` the last valid base configuration stays active.
 - The **settings UI** reads and writes the same files:
   - Base settings are written into `config.yaml`.
-  - Favorites are edited in the file they come from; new top-level favorites go into `favorites.d/00-ui.yaml` unless the user picks a file.
+  - Favorites are edited in the file they come from; new top-level favorites go into `favorites.default_file` (`00-ui.yaml`) unless the user picks a file.
   - Files marked `generated: true` are shown read-only.
   - Comments and order should be preserved when writing. Format-preserving YAML editing in Rust is less mature than for TOML; the library choice is part of the technical design (see open questions). If no suitable library exists, the UI only rewrites values it changed and warns before saving a file that contains comments.
 

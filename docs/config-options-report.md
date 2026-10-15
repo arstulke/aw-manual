@@ -5,6 +5,9 @@ inventory of every configuration option aw-manual has today. It changes no
 code. It is the input for step 2, the human review that decides which options
 to remove.
 
+The tables below describe the state **before** step 2. The decisions made in
+the review are listed in [Step 2: decisions](#step-2-decisions) at the end.
+
 Sources checked: `crates/core/src/config.rs` (parser, defaults, validation),
 `crates/core/src/favorites.rs`, `ui/src/settings/Settings.svelte`,
 `crates/daemon/src/*`, `crates/cli/src/main.rs`, `crates/core/src/paths.rs`,
@@ -171,3 +174,27 @@ These are facts that may help the decision in step 2. They are not decisions.
 | Environment variables | 5 |
 | Daemon flags | 3 |
 | Nix module options | 6 |
+
+## Step 2: decisions
+
+| Option | Decision |
+|---|---|
+| `server.bucket_type` | Removed. Always `manual.activity`. |
+| `server.heartbeat_interval` | Removed. Always 60 s. |
+| `favorites.dirs` | Kept. It can now also be edited in the settings window (General tab). |
+| Favorites editor "file" | New option `favorites.default_file` (default `00-ui.yaml`, in the first favorites folder), also editable in the settings window. |
+| `tray.elapsed_format`, `tray.time_format` | Renamed to `format.elapsed` and `format.time`, since the tray, popover, CLI and notifications all use them. |
+| `notifications.after_restart: true` | The legacy value is no longer accepted. |
+| `popover.scroll.layout` | Removed. Always the tree layout; the `levels` code is gone. |
+| `popover.scroll.dwell_confirm` | Removed. `popover.scroll.dwell_time` is now a duration or `false` (default `false` = no dwell confirmation). |
+| `popover.scroll.timeout` | Removed. Always 10 s, or longer when the dwell time needs it. |
+| `popover.scroll.sensitivity` | Removed. Always the base threshold. |
+| `popover.scroll.wrap_around` | Removed. Always wraps around. |
+| `popover.scroll.horizontal` | Kept. Right = confirm (Enter), left = confirm with a note (Shift+Enter), instead of back. |
+| All others | Unchanged. |
+
+Old keys are now reported as unknown settings; there is no migration.
+
+The `config.yaml` created on first start now lists every setting with its
+default, including `cli`, `log`, `openaction`, `popover.scroll.horizontal` and
+an example for `hotkeys.favorites`.

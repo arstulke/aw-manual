@@ -49,7 +49,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -57,7 +58,8 @@ select {
 input[type="text"],
 input[type="search"],
 input:not([type]),
-select {
+select,
+textarea {
   background: var(--bg-soft);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -66,7 +68,8 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   border-color: var(--accent);
 }
 

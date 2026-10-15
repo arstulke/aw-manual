@@ -13,9 +13,6 @@ use serde_json::Value;
 
 use aw_manual_core::service::{Service, Ui};
 
-/// File that receives new top-level favorites created in the settings UI.
-pub const UI_FILE: &str = "00-ui.yaml";
-
 #[derive(Debug, Deserialize)]
 pub struct Change {
     pub path: Vec<String>,
@@ -112,7 +109,7 @@ fn first_favorites_dir<U: Ui>(svc: &Service<U>) -> PathBuf {
 
 /// Adds a favorite below `parent` (a folder ID) or at the top level.
 /// Top-level favorites go to `file` (one of [`writable_files`]) or to
-/// `00-ui.yaml`; favorites in a folder go to the file defining that folder.
+/// `favorites.default_file` in the first favorites folder; favorites in a folder go to the file defining that folder.
 pub fn add_favorite<U: Ui>(
     svc: &Service<U>,
     parent: Option<&str>,
@@ -126,7 +123,7 @@ pub fn add_favorite<U: Ui>(
         match parent.filter(|p| !p.is_empty()) {
             None => match file {
                 None => (
-                    first_favorites_dir(svc).join(UI_FILE),
+                    first_favorites_dir(svc).join(&svc.config().favorites.default_file),
                     Vec::new(),
                     segment.clone(),
                 ),
@@ -256,12 +253,12 @@ mod tests {
         let errs = save_config(
             &dir,
             &[Change {
-                path: vec!["popover".into(), "scroll".into(), "timeout".into()],
-                value: Value::String("1s".into()),
+                path: vec!["popover".into(), "scroll".into(), "dwell_time".into()],
+                value: Value::String("0s".into()),
             }],
         )
         .unwrap_err();
-        assert!(errs[0].contains("timeout"), "{errs:?}");
+        assert!(errs[0].contains("dwell_time"), "{errs:?}");
         assert_eq!(std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap(), src);
         // Lists and booleans.
         save_config(
@@ -275,12 +272,22 @@ mod tests {
                     path: vec!["notifications".into(), "idle_reminder".into()],
                     value: Value::Bool(false),
                 },
+                Change {
+                    path: vec!["favorites".into(), "dirs".into()],
+                    value: serde_json::json!(["favorites.d", "~/Sync/favorites"]),
+                },
+                Change {
+                    path: vec!["favorites".into(), "default_file".into()],
+                    value: Value::String("05-mine.yaml".into()),
+                },
             ],
         )
         .unwrap();
         let c = parse_config(&std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap()).unwrap();
         assert_eq!(c.notifications.work_hours.days.len(), 2);
         assert_eq!(c.notifications.idle_reminder, None);
+        assert_eq!(c.favorites.dirs, vec!["favorites.d", "~/Sync/favorites"]);
+        assert_eq!(c.favorites.default_file, "05-mine.yaml");
         assert!(!dir.join(format!(".{CONFIG_FILE}.tmp")).exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -329,9 +336,11 @@ mod tests {
             add_favorite(&svc, None, None, &fav("Lunch")).unwrap(),
             "lunch"
         );
-        assert!(std::fs::read_to_string(fav_dir.join(UI_FILE))
-            .unwrap()
-            .contains("Lunch:"));
+        assert!(std::fs::read_to_string(
+            fav_dir.join(aw_manual_core::config::DEFAULT_FAVORITES_FILE)
+        )
+        .unwrap()
+        .contains("Lunch:"));
         // Into a folder: the file that defines the folder.
         svc.reload().await;
         assert_eq!(

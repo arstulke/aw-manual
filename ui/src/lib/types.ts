@@ -64,13 +64,9 @@ export interface Status {
 }
 
 export interface ScrollConfig {
-  layout: "tree" | "levels";
   confirm_with_hotkey: boolean;
-  dwell_confirm: boolean;
-  dwell_time: string;
-  timeout: string;
-  sensitivity: number;
-  wrap_around: boolean;
+  /** Dwell confirmation time, or false (disabled). */
+  dwell_time: string | false;
   open_at_cursor: boolean;
   start_at: "running" | "first";
   horizontal: boolean;
@@ -83,7 +79,7 @@ export interface Snapshot {
   status: Status;
   favorites: Favorite[];
   scroll: ScrollConfig;
-  tray: { elapsed_format: ElapsedFormat; time_format: TimeFormat };
+  format: { elapsed: ElapsedFormat; time: TimeFormat };
 }
 
 export type NavCommand = "next" | "prev" | "confirm" | "back" | "cancel";

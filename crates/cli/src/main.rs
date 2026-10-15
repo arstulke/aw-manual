@@ -546,16 +546,13 @@ fn log(a: LogArgs, json: bool) -> Result<()> {
     if json {
         return print_json(&r);
     }
-    let fmt = local_config().tray.time_format;
+    let fmt = local_config().format.time;
     out(&format!(
         "Logged {} {}–{} ({})",
         a.favorite,
         format_clock(&start.with_timezone(&Local), fmt),
         format_clock(&end.with_timezone(&Local), fmt),
-        format_elapsed(
-            (end - start).num_seconds(),
-            local_config().tray.elapsed_format
-        )
+        format_elapsed((end - start).num_seconds(), local_config().format.elapsed)
     ))
 }
 
@@ -563,7 +560,7 @@ fn render_status(st: &Status, template: Option<&Template>, cfg: &Config) -> Stri
     let now = Utc::now();
     if let Some(t) = template {
         return match &st.running {
-            Some(r) => t.render(&display::vars(&cfg.tray, r, now)),
+            Some(r) => t.render(&display::vars(cfg, r, now)),
             None => String::new(),
         };
     }
@@ -573,8 +570,8 @@ fn render_status(st: &Status, template: Option<&Template>, cfg: &Config) -> Stri
             lines.push(format!("● {}", describe(r)));
             let mut l = format!(
                 "  since {} ({})",
-                format_clock(&r.start.with_timezone(&Local), cfg.tray.time_format),
-                format_elapsed((now - r.start).num_seconds(), cfg.tray.elapsed_format)
+                format_clock(&r.start.with_timezone(&Local), cfg.format.time),
+                format_elapsed((now - r.start).num_seconds(), cfg.format.elapsed)
             );
             if r.kind == Kind::Status {
                 l.push_str(" · status");
@@ -590,7 +587,7 @@ fn render_status(st: &Status, template: Option<&Template>, cfg: &Config) -> Stri
                 lines.push(format!(
                     "  last: {} (ended {})",
                     s.path.join(PATH_SEPARATOR),
-                    format_clock(&s.ended.with_timezone(&Local), cfg.tray.time_format)
+                    format_clock(&s.ended.with_timezone(&Local), cfg.format.time)
                 ));
             }
         }
@@ -631,8 +628,8 @@ fn status(format: Option<String>, follow: bool, json: bool) -> Result<()> {
 
     // Follow: re-render on every change and when the elapsed time changes.
     let seconds = template.as_ref().is_some_and(|t| t.uses("elapsed"))
-        && cfg.tray.elapsed_format.has_seconds()
-        || template.is_none() && cfg.tray.elapsed_format.has_seconds();
+        && cfg.format.elapsed.has_seconds()
+        || template.is_none() && cfg.format.elapsed.has_seconds();
     let (tx, rx) = std::sync::mpsc::channel::<Option<Value>>();
     std::thread::spawn(move || {
         let _ = watch_loop(|v| tx.send(Some(v)).map_err(|_| Failure::new(exit::OK, "")));

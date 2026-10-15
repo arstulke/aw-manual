@@ -7,7 +7,7 @@ One bucket per host, created on the first successful contact with aw-server:
 | Field | Value |
 |---|---|
 | ID | `aw-manual_<hostname>` (`server.bucket_id`) |
-| type | `manual.activity` (`server.bucket_type`) |
+| type | `manual.activity` |
 | client | `aw-manual` |
 | hostname | the local host name |
 
@@ -50,7 +50,7 @@ Color and icon are not written (presentation only; resolvable via `id`).
 ## Writing
 
 - **Running activity**: the start is written as a heartbeat; then a heartbeat
-  every `heartbeat_interval` (default 60 s) and a final one at the exact stop
+  every 60 s and a final one at the exact stop
   time. aw-server merges them into one event. A crash loses at most one
   interval. The heartbeat merge window covers the whole run, so an activity
   keeps running across suspend/resume (aw-manual doesn't pause on its own).

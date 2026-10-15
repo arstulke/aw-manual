@@ -602,6 +602,7 @@ mod tests {
     use crate::config::{parse_config, DEFAULT_CONFIG_YAML};
     use crate::favorites::{merge_parsed, parse_favorites_file};
     use std::path::PathBuf;
+    use std::time::Duration;
 
     #[test]
     fn scalars() {
@@ -619,7 +620,7 @@ mod tests {
 
     #[test]
     fn replaces_values_and_keeps_comments() {
-        let src = "# top comment\nserver:\n  url: http://localhost:5600   # remote possible\n  heartbeat_interval: 60s\ntray:\n  display: template  # mode\n";
+        let src = "# top comment\nserver:\n  url: http://localhost:5600   # remote possible\n  bucket_id: x\ntray:\n  display: template  # mode\n";
         let out = set_value(src, &["tray", "display"], &Value::Str("elapsed".into())).unwrap();
         assert_eq!(out, src.replace("display: template", "display: elapsed"));
         let out = set_value(
@@ -635,26 +636,24 @@ mod tests {
     #[test]
     fn inserts_missing_keys_and_sections() {
         let src = "server:\n  url: http://localhost:5600\n\n# trailing comment\n";
-        let out = set_value(
-            src,
-            &["server", "heartbeat_interval"],
-            &Value::Str("30s".into()),
-        )
-        .unwrap();
-        assert_eq!(out, "server:\n  url: http://localhost:5600\n  heartbeat_interval: 30s\n\n# trailing comment\n");
+        let out = set_value(src, &["server", "bucket_id"], &Value::Str("mine".into())).unwrap();
+        assert_eq!(
+            out,
+            "server:\n  url: http://localhost:5600\n  bucket_id: mine\n\n# trailing comment\n"
+        );
         let out = set_value(
             &out,
-            &["popover", "scroll", "dwell_confirm"],
+            &["popover", "scroll", "horizontal"],
             &Value::Bool(true),
         )
         .unwrap();
         assert!(
-            out.ends_with("  heartbeat_interval: 30s\npopover:\n  scroll:\n    dwell_confirm: true\n\n# trailing comment\n"),
+            out.ends_with("  bucket_id: mine\npopover:\n  scroll:\n    horizontal: true\n\n# trailing comment\n"),
             "{out}"
         );
         let c = parse_config(&out).unwrap();
-        assert!(c.popover.scroll.dwell_confirm);
-        assert_eq!(c.server.heartbeat_interval.as_secs(), 30);
+        assert!(c.popover.scroll.horizontal);
+        assert_eq!(c.server.bucket_id, "mine");
     }
 
     #[test]
@@ -723,12 +722,7 @@ mod tests {
             &Value::Str("{path} – {elapsed}".into()),
         )
         .unwrap();
-        src = set_value(
-            &src,
-            &["tray", "elapsed_format"],
-            &Value::Str("1:23".into()),
-        )
-        .unwrap();
+        src = set_value(&src, &["format", "elapsed"], &Value::Str("1:23".into())).unwrap();
         src = set_value(
             &src,
             &["notifications", "idle_reminder"],
@@ -743,25 +737,25 @@ mod tests {
         .unwrap();
         src = set_value(
             &src,
-            &["popover", "scroll", "sensitivity"],
-            &Value::Num(2.0),
+            &["popover", "scroll", "dwell_time"],
+            &Value::Str("3s".into()),
         )
         .unwrap();
         src = set_value(&src, &["cli", "autostart_daemon"], &Value::Bool(false)).unwrap();
         let c = parse_config(&src).unwrap();
         assert_eq!(c.server.url, "https://aw.example.com");
         assert_eq!(c.tray.template, "{path} – {elapsed}");
-        assert_eq!(c.tray.elapsed_format.as_str(), "1:23");
+        assert_eq!(c.format.elapsed.as_str(), "1:23");
         assert_eq!(c.notifications.idle_reminder, None);
         assert_eq!(
             c.notifications.work_hours.from.format("%H:%M").to_string(),
             "07:30"
         );
-        assert_eq!(c.popover.scroll.sensitivity, 2.0);
+        assert_eq!(c.popover.scroll.dwell_time, Some(Duration::from_secs(3)));
         assert!(!c.cli.autostart_daemon);
         // Comments survive.
         assert!(src.contains("# a remote aw-server is possible as well"));
-        assert!(src.contains("# must be longer than dwell_time"));
+        assert!(src.contains("# running | first"));
     }
 
     #[test]

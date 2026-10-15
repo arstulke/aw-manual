@@ -19,14 +19,6 @@ describe("wheel steps", () => {
     expect(steps.filter((s) => s !== 0).length).toBe(1 + Math.floor((39 * 5) / 40));
   });
 
-  it("sensitivity scales the threshold", () => {
-    const w = new WheelSteps(2);
-    let t = 0;
-    let n = 0;
-    for (let i = 0; i < 40; i++) n += Math.abs(w.vertical(5, 0, (t += 16)));
-    expect(n).toBe(1 + Math.floor((39 * 5) / 80));
-  });
-
   it("direction changes reset the accumulator", () => {
     const w = new WheelSteps();
     expect(w.vertical(5, 0, 0)).toBe(1);

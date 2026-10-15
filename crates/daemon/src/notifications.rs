@@ -99,7 +99,7 @@ fn show(app: &AppHandle, title: &str, body: &str, _actions: &[Action]) {
 /// After a restart: the previously running activity ended with its last heartbeat.
 pub fn restored(app: &AppHandle, stopped: &Stopped) {
     let svc = app.state::<Arc<Svc>>();
-    let fmt = svc.config().tray.time_format;
+    let fmt = svc.config().format.time;
     let body = format!(
         "Last activity: {} (ended {})",
         stopped.activity.path.join(PATH_SEPARATOR),

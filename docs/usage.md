@@ -39,39 +39,36 @@ The popover opens in scroll mode. It can be used without keyboard, click or
 touch; the reference device is a regular mouse, with the hotkey on a side
 button (e.g. `hotkeys.popover: Mouse4`).
 
-- The list shows the **whole favorites tree, expanded** (`layout: tree`, the
-  default): folders are headings that stay pinned at the top while you scroll
-  through their contents, so the hierarchy of the highlighted item is always
-  visible, and **scrolling** moves the highlight through
-  the leaves only, in the configured order, so every favorite is reachable
-  without opening folders. With `layout: levels`, the list shows one folder
-  level at a time instead. The highlighted item is shown with its full path at
-  the bottom.
+- The list shows the **whole favorites tree, expanded**: folders are headings
+  that stay pinned at the top while you scroll through their contents, so the
+  hierarchy of the highlighted item is always visible, and **scrolling** moves
+  the highlight through the leaves only, in the configured order, so every
+  favorite is reachable without opening folders. The highlighted item is shown
+  with its full path at the bottom.
 - **Confirm** by pressing the hotkey again (`popover.scroll.confirm_with_hotkey`,
   on by default) and/or by **dwell time**: keep the highlight on an item for
-  `dwell_time` (default 2 s, `dwell_confirm: true`). A progress bar shows the
+  `dwell_time` (off by default; e.g. `dwell_time: 2s`). A progress bar shows the
   countdown; any scroll restarts it. Dwell only starts after the first scroll
   movement, so opening the popover alone never triggers anything.
 - Confirming a **leaf** starts the activity and closes the popover; the
-  **running activity** just closes the popover. With `layout: levels`,
-  confirming a **folder** opens it.
-- Navigation items: "■ Stop" (first item while an activity runs), "✕ Cancel"
-  (last item), and with `layout: levels` "‹ Back" (first item of every
-  sub-level). In the tree layout, Back jumps to the first leaf of the current
-  folder, then to the previous folder.
-- Without input, the popover closes after `timeout` (default 10 s; it must be
-  longer than the dwell time).
+  **running activity** just closes the popover.
+- Navigation items: "■ Stop" (first item while an activity runs) and
+  "✕ Cancel" (last item). Back (Backspace, ←, `aw-manual nav back`) jumps to
+  the first leaf of the current folder, then to the previous folder.
+- Without input, the popover closes after 10 s (or longer, when the dwell time
+  needs it).
 - The highlight starts on the running activity (`start_at: running`) or on the
   first favorite (`start_at: first`).
 - Each notch of a mouse wheel is one step. High-resolution wheels and touchpads
-  are accumulated (one step per threshold, scaled by `sensitivity`), so they
-  don't race through the list. Scrolling past the last item continues at the first one and vice versa
-  (`wrap_around`, on by default; also for the scroll wheel in keyboard mode).
-- `horizontal: true`: scrolling left (or wheel tilt) is Back, right is Confirm.
+  are accumulated (one step per threshold), so they don't race through the
+  list. Scrolling past the last item continues at the first one and vice versa
+  (also for the scroll wheel in keyboard mode).
+- `horizontal: true`: scrolling right (or wheel tilt) confirms, like Enter;
+  scrolling left confirms with a note first, like Shift+Enter.
 - With `confirm_with_hotkey: false`, the hotkey closes the open popover.
 
-Keys in scroll mode: **↑/↓** move, **Enter/→** confirm, **Backspace/←** back,
-**Esc** cancel. The same commands are available as
+Keys in scroll mode: **↑/↓** move, **Enter/→** confirm, **Shift+Enter**
+confirm with a note, **Backspace/←** back, **Esc** cancel. The same commands are available as
 `aw-manual nav next|prev|confirm|back|cancel`, for devices that send key
 presses, or when scroll events don't reach the popover.
 
@@ -205,10 +202,10 @@ If the prompt doesn't appear after unlocking:
 - Text next to the icon (`tray.display`): `icon` (none), `elapsed` (`1h 23m`),
   `since` (`since 09:30`), `title`, or `template` with `{title}`, `{path}`,
   `{elapsed}`, `{since}`, `{note}` (default `{title} · {elapsed}`).
-  `elapsed_format` is `1h 23m`, `1:23`, `1h 23m 45s` or `1:23:45`; with seconds
+  `format.elapsed` is `1h 23m`, `1:23`, `1h 23m 45s` or `1:23:45`; with seconds
   the text updates every second, otherwise every minute. `1h 23m` shows seconds
-  during the first minute (`42s` instead of `0m`). `time_format` is `24h`
-  or `12h`.
+  during the first minute (`42s` instead of `0m`). `format.time` is `24h`
+  or `12h`. Both also apply to the popover, the CLI and notifications.
 - The tooltip always shows path, start time, duration and note.
 
 Text next to the icon works on macOS (menu bar) and Linux with AppIndicator

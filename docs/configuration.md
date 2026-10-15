@@ -95,7 +95,7 @@ popover:
     dwell_time: 2s
     timeout: 10s                    # must be longer than dwell_time
     sensitivity: 1.0                # threshold factor per scroll step
-    wrap_around: false
+    wrap_around: true
     open_at_cursor: true
     start_at: running               # running | first
     horizontal: false               # left = back, right = confirm

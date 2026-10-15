@@ -260,7 +260,7 @@ impl Default for Config {
                     dwell_time: Duration::from_secs(2),
                     timeout: Duration::from_secs(10),
                     sensitivity: 1.0,
-                    wrap_around: false,
+                    wrap_around: true,
                     open_at_cursor: true,
                     start_at: StartAt::Running,
                     horizontal: false,
@@ -325,7 +325,7 @@ popover:
     dwell_time: 2s
     timeout: 10s                    # must be longer than dwell_time
     sensitivity: 1.0                # threshold factor per step
-    wrap_around: false
+    wrap_around: true
     open_at_cursor: true
     start_at: running               # running | first
   afk_prompt: 15m                   # ask what you did while away (aw-watcher-afk); false to disable

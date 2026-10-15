@@ -39,7 +39,9 @@ touch; the reference device is a regular mouse, with the hotkey on a side
 button (e.g. `hotkeys.popover: Mouse4`).
 
 - The list shows the **whole favorites tree, expanded** (`layout: tree`, the
-  default): folders are headings, and **scrolling** moves the highlight through
+  default): folders are headings that stay pinned at the top while you scroll
+  through their contents, so the hierarchy of the highlighted item is always
+  visible, and **scrolling** moves the highlight through
   the leaves only, in the configured order, so every favorite is reachable
   without opening folders. With `layout: levels`, the list shows one folder
   level at a time instead. The highlighted item is shown with its full path at
@@ -62,7 +64,8 @@ button (e.g. `hotkeys.popover: Mouse4`).
   first favorite (`start_at: first`).
 - Each notch of a mouse wheel is one step. High-resolution wheels and touchpads
   are accumulated (one step per threshold, scaled by `sensitivity`), so they
-  don't race through the list. `wrap_around` jumps from the end to the start.
+  don't race through the list. Scrolling past the last item continues at the first one and vice versa
+  (`wrap_around`, on by default; also for the scroll wheel in keyboard mode).
 - `horizontal: true`: scrolling left (or wheel tilt) is Back, right is Confirm.
 - With `confirm_with_hotkey: false`, the hotkey closes the open popover.
 

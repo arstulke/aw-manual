@@ -147,7 +147,7 @@
               "description": "Closes the popover without input after this time; must be longer than dwell_time."
             },
             "sensitivity": { "type": "number", "exclusiveMinimum": 0, "maximum": 100, "default": 1.0 },
-            "wrap_around": { "type": "boolean", "default": false },
+            "wrap_around": { "type": "boolean", "default": true },
             "open_at_cursor": { "type": "boolean", "default": true },
             "start_at": { "enum": ["running", "first"], "default": "running" },
             "horizontal": {

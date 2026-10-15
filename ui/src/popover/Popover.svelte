@@ -51,6 +51,22 @@
     void navVersion;
     return drill.items();
   });
+  /** Index of each heading / leaf in navItems (tree layout rendering). */
+  const navIndexOf = $derived(
+    new Map(navItems.flatMap((it, i) => (it.kind === "heading" || it.kind === "leaf" ? [[`${it.kind}:${it.fav.id}`, i] as [string, number]] : []))),
+  );
+  /** Height of a heading row; sticky headings stack by depth. */
+  const HEADING_PX = 24;
+
+  function rowStyle(item: NavItem): string | undefined {
+    if (item.kind === "back" || item.kind === "stop" || item.kind === "cancel" || !item.depth) {
+      return item.kind === "heading" ? `top: 0; z-index: 20` : undefined;
+    }
+    const pad = `padding-left: ${10 + item.depth * 18}px`;
+    if (item.kind === "heading") return `${pad}; top: ${item.depth * HEADING_PX}px; z-index: ${20 - item.depth}`;
+    return pad;
+  }
+
   const navIndex = $derived.by(() => {
     void navVersion;
     return drill.index;
@@ -537,9 +553,14 @@
 
   /** Wheel in keyboard mode: moves the highlight through the leaves (search results or tree). */
   function wheelKeyboard(dir: 1 | -1) {
-    for (let i = kbIndex + dir; i >= 0 && i < kbList.length; i += dir) {
-      if (kbList[i].fav.type === "leaf") {
-        kbIndex = i;
+    const n = kbList.length;
+    const wrap = snap?.scroll.wrap_around ?? true;
+    for (let k = 1; k < n; k++) {
+      const i = kbIndex + dir * k;
+      if (!wrap && (i < 0 || i >= n)) return;
+      const j = ((i % n) + n) % n;
+      if (kbList[j].fav.type === "leaf") {
+        kbIndex = j;
         return;
       }
     }
@@ -584,7 +605,16 @@
     void navIndex;
     void kbIndex;
     void mode;
-    tick().then(() => listEl?.querySelector(".hl")?.scrollIntoView({ block: "nearest" }));
+    tick().then(() => {
+      const el = listEl?.querySelector<HTMLElement>(".hl");
+      if (!el || !listEl) return;
+      // Leave room for the sticky headings above the item (tree layout).
+      const covered = Number(el.dataset.depth ?? 0) * HEADING_PX;
+      const list = listEl.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      if (r.top - list.top < covered) listEl.scrollTop -= covered - (r.top - list.top);
+      else if (r.bottom > list.bottom) listEl.scrollTop += r.bottom - list.bottom;
+    });
   });
 
   // New search: highlight the best match.
@@ -632,6 +662,63 @@
     return fav.color?.value ?? "transparent";
   }
 </script>
+
+{#snippet navRow(item: NavItem, i: number)}
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<li
+  role="option"
+  aria-selected={i === navIndex}
+  class:hl={i === navIndex}
+  class={item.kind}
+  style={rowStyle(item)}
+  data-depth={item.kind === "leaf" && snap?.scroll.layout !== "levels" ? item.depth : undefined}
+  onclick={() => clickNav(i)}
+  oncontextmenu={(e) => {
+    e.preventDefault();
+    if (item.kind === "leaf") askNote(item.fav);
+  }}
+>
+  {#if item.kind === "back"}
+    <span class="label">‹ Back</span>
+  {:else if item.kind === "stop"}
+    <span class="label">■ Stop</span>
+  {:else if item.kind === "cancel"}
+    <span class="label">✕ Cancel</span>
+  {:else if item.kind === "heading"}
+    <span class="dot small" style={`background: ${dot(item.fav)}`}></span>
+    <span class="icon">{iconGlyph(item.fav.icon?.value)}</span>
+    <span class="label">{item.fav.title}</span>
+  {:else}
+    <span class="dot small" style={`background: ${dot(item.fav)}`}></span>
+    <span class="icon">{iconGlyph(item.fav.icon?.value)}</span>
+    <span class="label">{item.fav.title}</span>
+    {#if item.kind === "folder"}<span class="chev">›</span>{/if}
+    {#if item.kind === "leaf" && item.fav.ask_note}<span class="tag" title="Asks for a note">note</span>{/if}
+    {#if item.kind === "leaf" && item.fav.id === running?.id}<span class="tag">running</span>{/if}
+    {#if item.kind === "leaf" && item.fav.kind === "status"}<span class="tag">status</span>{/if}
+  {/if}
+  {#if i === navIndex && dwellArmed}
+    {#key dwellKey}<span class="dwell"></span>{/key}
+  {/if}
+</li>
+{/snippet}
+
+{#snippet branch(nodes: Favorite[])}
+  {#each nodes as f (f.id)}
+    {#if f.type === "folder"}
+      {@const i = navIndexOf.get("heading:" + f.id) ?? -1}
+      <li class="group" role="presentation">
+        <ul role="group">
+          {#if i !== -1}{@render navRow(navItems[i], i)}{/if}
+          {@render branch(f.children ?? [])}
+        </ul>
+      </li>
+    {:else}
+      {@const i = navIndexOf.get("leaf:" + f.id) ?? -1}
+      {#if i !== -1}{@render navRow(navItems[i], i)}{/if}
+    {/if}
+  {/each}
+{/snippet}
 
 <svelte:window onkeydown={onKeydown} />
 
@@ -688,44 +775,14 @@
   {/if}
 
   <ul class="list" bind:this={listEl} tabindex="-1" role="listbox" aria-label="Favorites">
-    {#if mode === "scroll" && !query}
+    {#if mode === "scroll" && !query && snap?.scroll.layout !== "levels"}
+      <!-- Tree layout: nested groups, so the headings of the highlighted item stay visible (sticky). -->
+      {#if navItems[0]?.kind === "stop"}{@render navRow(navItems[0], 0)}{/if}
+      {@render branch(snap?.favorites ?? [])}
+      {@render navRow(navItems[navItems.length - 1], navItems.length - 1)}
+    {:else if mode === "scroll" && !query}
       {#each navItems as item, i (i + ":" + (item.kind === "folder" || item.kind === "leaf" || item.kind === "heading" ? item.fav.id : item.kind))}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <li
-          role="option"
-          aria-selected={i === navIndex}
-          class:hl={i === navIndex}
-          class={item.kind}
-          style={item.kind !== "back" && item.kind !== "stop" && item.kind !== "cancel" && item.depth ? `padding-left: ${10 + item.depth * 18}px` : undefined}
-          onclick={() => clickNav(i)}
-          oncontextmenu={(e) => {
-            e.preventDefault();
-            if (item.kind === "leaf") askNote(item.fav);
-          }}
-        >
-          {#if item.kind === "back"}
-            <span class="label">‹ Back</span>
-          {:else if item.kind === "stop"}
-            <span class="label">■ Stop</span>
-          {:else if item.kind === "cancel"}
-            <span class="label">✕ Cancel</span>
-          {:else if item.kind === "heading"}
-            <span class="dot small" style={`background: ${dot(item.fav)}`}></span>
-            <span class="icon">{iconGlyph(item.fav.icon?.value)}</span>
-            <span class="label">{item.fav.title}</span>
-          {:else}
-            <span class="dot small" style={`background: ${dot(item.fav)}`}></span>
-            <span class="icon">{iconGlyph(item.fav.icon?.value)}</span>
-            <span class="label">{item.fav.title}</span>
-            {#if item.kind === "folder"}<span class="chev">›</span>{/if}
-            {#if item.kind === "leaf" && item.fav.ask_note}<span class="tag" title="Asks for a note">note</span>{/if}
-            {#if item.kind === "leaf" && item.fav.id === running?.id}<span class="tag">running</span>{/if}
-            {#if item.kind === "leaf" && item.fav.kind === "status"}<span class="tag">status</span>{/if}
-          {/if}
-          {#if i === navIndex && dwellArmed}
-            {#key dwellKey}<span class="dwell"></span>{/key}
-          {/if}
-        </li>
+        {@render navRow(item, i)}
       {/each}
     {:else}
       {#each kbList as row, i (row.fav.id)}
@@ -908,8 +965,28 @@
     cursor: default;
     color: var(--fg-soft);
     font-size: 12px;
-    padding-top: 5px;
-    padding-bottom: 3px;
+    box-sizing: border-box;
+    height: 24px;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-radius: 0;
+    position: sticky;
+    background: var(--bg);
+  }
+  .list li.group {
+    display: block;
+    padding: 0;
+    overflow: visible;
+    cursor: default;
+    border-radius: 0;
+  }
+  .list li.group:hover {
+    background: none;
+  }
+  .list ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
   }
   .list li.heading:hover {
     background: none;

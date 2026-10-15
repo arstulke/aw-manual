@@ -168,7 +168,7 @@ The popover must be fully operable without keyboard, mouse click or touch. **The
 - **Scroll behavior:**
   - Default: one notch of the mouse wheel = one step
   - Deltas are accumulated, one step per threshold, so high-resolution wheels and touchpads don't "race through"; sensitivity configurable
-  - Stop at the end of the list or wrap around (configurable, default: stop)
+  - Wrap around at the end of the list or stop there (configurable, default: wrap around)
   - Horizontal scrolling or wheel tilt (if available) optionally acts as Back/Confirm
 - **Readability:** The highlighted item is clearly emphasized and shown with its full path, since search isn't available without a keyboard.
 
@@ -354,7 +354,7 @@ popover:
     dwell_time: 2s
     timeout: 10s                    # must be longer than dwell_time
     sensitivity: 1.0                # threshold factor per step
-    wrap_around: false
+    wrap_around: true
     open_at_cursor: true
     start_at: running               # running | first
 

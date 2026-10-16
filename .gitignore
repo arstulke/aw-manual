@@ -1,0 +1,8 @@
+/target
+node_modules/
+/ui/dist/
+/crates/daemon/binaries/
+/crates/daemon/gen/
+result
+result-*
+*.log

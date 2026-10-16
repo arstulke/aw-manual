@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adds the installation folder (which contains aw-manual.exe, the CLI) to the system PATH. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="AwManualCliPath" Guid="6B0F4A51-3C9E-4E3B-9C5B-1B6E2F0D7A41">
+        <RegistryValue Root="HKLM" Key="Software\aw-manual" Name="CliOnPath" Type="integer" Value="1" KeyPath="yes" />
+        <Environment Id="AwManualPathEnv" Name="PATH" Value="[INSTALLDIR]" Permanent="no" Part="last" Action="set" System="yes" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>

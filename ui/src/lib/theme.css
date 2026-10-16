@@ -1,0 +1,123 @@
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f4f5f7;
+  --bg-hover: #eceef2;
+  --fg: #1d2127;
+  --fg-soft: #5d6673;
+  --border: #d9dde3;
+  --accent: #2563eb;
+  --accent-fg: #ffffff;
+  --highlight: #dbe7ff;
+  --danger: #c62828;
+  --warn: #b26a00;
+  --ok: #2e7d32;
+  --radius: 8px;
+  color-scheme: light;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, sans-serif;
+  font-size: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e2127;
+    --bg-soft: #262a31;
+    --bg-hover: #2f343c;
+    --fg: #e6e9ee;
+    --fg-soft: #a0a8b4;
+    --border: #3a404a;
+    --accent: #5b8ff9;
+    --accent-fg: #0b1220;
+    --highlight: #2c3f63;
+    --danger: #ef6b6b;
+    --warn: #e0a243;
+    --ok: #6cc070;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+input[type="text"],
+input[type="search"],
+input:not([type]),
+select,
+textarea {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  outline: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+}
+
+button {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--bg-hover);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.muted {
+  color: var(--fg-soft);
+}
+
+.error {
+  color: var(--danger);
+  white-space: pre-wrap;
+}
+
+kbd {
+  font-family: inherit;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 4px;
+  background: var(--bg-soft);
+}
+
+/* Key hints on accent-colored buttons: tinted with the button's text color. */
+button.primary kbd {
+  background: color-mix(in srgb, var(--accent-fg) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent-fg) 45%, transparent);
+  color: inherit;
+}

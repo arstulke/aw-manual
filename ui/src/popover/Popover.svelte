@@ -1,0 +1,1207 @@
+<script lang="ts">
+  import { onMount, tick } from "svelte";
+  import { api, errorText, onClosed, onNav, onOpened, onStateChanged, type Gap, type Opened } from "../lib/api";
+  import { formatClock, formatElapsed, iconGlyph, parseDuration, PATH_SEPARATOR } from "../lib/format";
+  import { leaves, search } from "../lib/fuzzy";
+  import { ExpandedTree, type NavItem } from "../lib/nav";
+  import { backIndex } from "../lib/tree";
+  import type { Favorite, NavCommand, Snapshot } from "../lib/types";
+  import { WheelSteps } from "../lib/wheel";
+
+  type Mode = "scroll" | "keyboard";
+
+  let snap = $state<Snapshot | null>(null);
+  let mode = $state<Mode>("scroll");
+  let query = $state("");
+  let note = $state("");
+  let noteOpen = $state(false);
+  /** A favorite waiting for its note (ask_note, Shift+Enter, right click). */
+  let noteFor = $state<Favorite | null>(null);
+  /**
+   * Question after a restart or unlock: "gap" logs what happened meanwhile,
+   * "resume" offers to continue an activity from now, "choose" asks for the
+   * activity from now on.
+   */
+  type Continue = { id: string; path: string[]; note: string | null; last: boolean };
+  let prompt = $state<{ step: "gap" | "resume" | "choose"; gap: Gap; next: Continue | null } | null>(null);
+  let handledSeq = 0;
+  let retro = $state(false);
+  let range = $state("");
+  let preview = $state<{ text?: string; error?: string } | null>(null);
+  let error = $state("");
+  let busy = $state(false);
+  let now = $state(Date.now());
+  let kbIndex = $state(0);
+  let navVersion = $state(0);
+  let dwellArmed = $state(false);
+  let dwellKey = $state(0);
+
+  let scrollTree = new ExpandedTree([], null);
+  const wheel = new WheelSteps();
+  let dwellTimer: ReturnType<typeof setTimeout> | undefined;
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+
+  let searchEl = $state<HTMLInputElement>();
+  let noteEl = $state<HTMLInputElement>();
+  let rangeEl = $state<HTMLInputElement>();
+  let listEl = $state<HTMLElement>();
+
+  const running = $derived(snap?.status.running ?? null);
+  const SCROLL_TIMEOUT_MS = 10_000;
+  /** Dwell confirmation time; 0 = disabled. */
+  const dwellMs = $derived(snap && snap.scroll.dwell_time !== false ? parseDuration(snap.scroll.dwell_time) : 0);
+  /** Scroll mode closes after this long without input (always longer than the dwell time). */
+  const timeoutMs = $derived(Math.max(SCROLL_TIMEOUT_MS, dwellMs + 2000));
+  const results = $derived(snap && query.trim() ? search(snap.favorites, query) : []);
+  /**
+   * The leaves keyboard mode moves through: the search results, or all leaves
+   * of the tree in configured order (folders are headings, not selectable).
+   */
+  const kbList = $derived<Favorite[]>(query.trim() ? results : snap ? leaves(snap.favorites) : []);
+  /** Index of each leaf in kbList (tree rendering). */
+  const kbIndexOf = $derived(new Map(kbList.map((fav, i) => [fav.id, i] as [string, number])));
+  const navItems = $derived.by<NavItem[]>(() => {
+    void navVersion;
+    return scrollTree.items();
+  });
+  /** Index of each heading / leaf in navItems (tree rendering). */
+  const navIndexOf = $derived(
+    new Map(navItems.flatMap((it, i) => (it.kind === "heading" || it.kind === "leaf" ? [[`${it.kind}:${it.fav.id}`, i] as [string, number]] : []))),
+  );
+  /** Height of a heading row; sticky headings stack by depth. */
+  const HEADING_PX = 24;
+
+  /** Indentation of a tree row; sticky headings stack by depth. */
+  function treeStyle(kind: "heading" | "leaf", depth: number): string | undefined {
+    if (!depth) return kind === "heading" ? `top: 0; z-index: 20` : undefined;
+    const pad = `padding-left: ${10 + depth * 18}px`;
+    if (kind === "heading") return `${pad}; top: ${depth * HEADING_PX}px; z-index: ${20 - depth}`;
+    return pad;
+  }
+
+  function rowStyle(item: NavItem): string | undefined {
+    if (item.kind === "stop" || item.kind === "cancel") return undefined;
+    return treeStyle(item.kind, item.depth);
+  }
+
+  const navIndex = $derived.by(() => {
+    void navVersion;
+    return scrollTree.index;
+  });
+  const highlightedPath = $derived.by(() => {
+    void navVersion;
+    if (mode === "scroll") return scrollTree.highlightedPath();
+    return kbList[kbIndex]?.path ?? [];
+  });
+  const source = $derived(mode === "scroll" ? "popover-scroll" : "popover");
+
+  function elapsedText(): string {
+    if (!running || !snap) return "";
+    return formatElapsed((now - Date.parse(running.start)) / 1000, snap.format.elapsed);
+  }
+
+  async function refresh() {
+    try {
+      snap = await api.snapshot();
+      scrollTree.update(snap.favorites, snap.status.running?.id ?? null);
+      navVersion++;
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
+
+  function clearTimers() {
+    clearTimeout(dwellTimer);
+    clearTimeout(timeoutTimer);
+    dwellArmed = false;
+  }
+
+  /** Closes the popover after the timeout without input (scroll mode only). */
+  function restartTimeout() {
+    clearTimeout(timeoutTimer);
+    if (mode === "scroll" && snap) timeoutTimer = setTimeout(() => close(), timeoutMs);
+  }
+
+  /** Dwell confirmation starts only after a scroll movement. */
+  function armDwell() {
+    clearTimeout(dwellTimer);
+    dwellArmed = false;
+    if (!dwellMs || mode !== "scroll") return;
+    dwellArmed = true;
+    dwellKey++;
+    dwellTimer = setTimeout(() => {
+      dwellArmed = false;
+      confirmScroll();
+    }, dwellMs);
+  }
+
+  function findFavorite(nodes: Favorite[], id: string): Favorite | null {
+    for (const f of nodes) {
+      if (f.id === id) return f;
+      const c = findFavorite(f.children ?? [], id);
+      if (c) return c;
+    }
+    return null;
+  }
+
+  async function reset(opened?: Opened | null) {
+    if (opened) {
+      if (opened.seq <= handledSeq) return;
+      handledSeq = opened.seq;
+    }
+    clearTimers();
+    prompt = null;
+    mode = "scroll";
+    query = "";
+    note = "";
+    noteOpen = false;
+    noteFor = null;
+    retro = false;
+    range = "";
+    preview = null;
+    error = "";
+    busy = false;
+    kbIndex = 0;
+    await refresh();
+    if (!snap) return;
+    scrollTree = new ExpandedTree(snap.favorites, snap.status.running?.id ?? null);
+    scrollTree.startAt(snap.scroll.start_at);
+    navVersion++;
+    const fav = opened?.favorite ? findFavorite(snap.favorites, opened.favorite) : null;
+    if (fav && fav.type === "leaf") {
+      await askNote(fav);
+      return;
+    }
+    if (opened?.note && snap.status.running) {
+      await openNote();
+      return;
+    }
+    if (opened?.gap) {
+      await startGap(opened.gap);
+      return;
+    }
+    restartTimeout();
+    await tick();
+    listEl?.focus();
+  }
+
+  async function close() {
+    clearTimers();
+    try {
+      await api.hide();
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
+
+  function lastActivity(gap: Gap): Continue | null {
+    return gap.last ? { id: gap.last.id, path: gap.last.path, note: gap.last.note, last: true } : null;
+  }
+
+  /** Step 1: what happened during the gap (a retroactive entry). */
+  async function startGap(gap: Gap) {
+    if (!gap.range) {
+      // Too short to log anything: only ask what to continue with.
+      const last = lastActivity(gap);
+      prompt = { step: "gap", gap, next: null };
+      if (last) await askContinue(last);
+      else await chooseNow();
+      return;
+    }
+    prompt = { step: "gap", gap, next: null };
+    await enterKeyboard();
+    retro = true;
+    range = gap.range;
+    // Preselect the activity from before the gap: Enter logs it.
+    if (gap.last) highlight(gap.last.id);
+  }
+
+  /**
+   * Esc in step 1: nothing logged. Offer the activity from before the gap
+   * (after unlocking: the one still running), otherwise ask what's next.
+   */
+  async function skipGap() {
+    if (!prompt) return;
+    const last = lastActivity(prompt.gap);
+    if (last) await askContinue(last);
+    else await chooseNow();
+  }
+
+  /** Step 2: continue with this activity from now? */
+  async function askContinue(next: Continue) {
+    if (!prompt) return;
+    prompt = { ...prompt, step: "resume", next };
+    retro = false;
+    range = "";
+    query = "";
+    note = "";
+    noteOpen = false;
+    noteFor = null;
+    // Highlight the activity to continue: Enter continues it, or move the
+    // highlight to start another one. Switch first, since entering keyboard
+    // mode highlights the item from scroll mode.
+    await enterKeyboard();
+    highlight(next.id);
+  }
+
+  async function continueYes() {
+    const next = prompt?.next;
+    if (!next || busy) return;
+    busy = true;
+    error = "";
+    try {
+      // The last activity before a restart is resumed as it was (also ad-hoc
+      // activities); a favorite picked for the gap starts from now.
+      if (next.last && prompt?.gap.reason === "restart") await api.resume();
+      else if (next.last && running?.id === next.id) {
+        // After unlocking: the activity is still running, nothing to change.
+      } else await api.start(next.id, next.note, "popover");
+      await close();
+    } catch (e) {
+      error = errorText(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Step 3: what are you doing from now on? */
+  async function chooseNow() {
+    if (!prompt) return;
+    prompt = { ...prompt, step: "choose", next: null };
+    retro = false;
+    range = "";
+    note = "";
+    await enterKeyboard();
+  }
+
+  function gapText(gap: Gap): string {
+    const fmt = snap?.format.time ?? "24h";
+    const from = formatClock(new Date(gap.start), fmt);
+    const to = formatClock(new Date(gap.end), fmt);
+    const len = formatElapsed(gap.seconds, "1h 23m");
+    const what = gap.reason === "restart" ? "aw-manual wasn't running" : "The screen was locked";
+    return `${what} from ${from} to ${to} (${len}).`;
+  }
+
+  /** Switches to keyboard mode with the note field focused. */
+  async function openNote() {
+    await enterKeyboard();
+    noteOpen = true;
+    await tick();
+    noteEl?.focus();
+  }
+
+  /** Asks for a note before starting the favorite (Enter in the note field starts it). */
+  async function askNote(fav: Favorite) {
+    if (fav.type !== "leaf") return;
+    noteFor = fav;
+    await openNote();
+  }
+
+  async function startFavorite(fav: Favorite, asked = false) {
+    if (busy) return;
+    if (fav.ask_note && !asked && !(mode === "keyboard" && note.trim())) {
+      await askNote(fav);
+      return;
+    }
+    busy = true;
+    error = "";
+    clearTimers();
+    try {
+      const n = mode === "keyboard" ? note.trim() || null : null;
+      if (retro && mode === "keyboard") {
+        if (!range.trim()) {
+          error = "Enter a time range first (e.g. -30m or 10:00-11:15).";
+          rangeEl?.focus();
+          return;
+        }
+        await api.log(fav.id, range, n);
+      } else {
+        await api.start(fav.id, n, source);
+      }
+      if (prompt?.step === "gap") {
+        // Logged what happened meanwhile; next: continue with it from now?
+        await askContinue({ id: fav.id, path: fav.path, note: n, last: false });
+        return;
+      }
+      await close();
+    } catch (e) {
+      error = errorText(e);
+      restartTimeout();
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function stopRunning() {
+    if (busy || !running) return;
+    busy = true;
+    try {
+      await api.stop(source);
+      await close();
+    } catch (e) {
+      error = errorText(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function applyNote() {
+    if (noteFor) {
+      const fav = noteFor;
+      await startFavorite(fav, true);
+      return;
+    }
+    if (running && !retro) {
+      busy = true;
+      try {
+        await api.setNote(note.trim() || null);
+        await close();
+      } catch (e) {
+        error = errorText(e);
+      } finally {
+        busy = false;
+      }
+    } else {
+      searchEl?.focus();
+    }
+  }
+
+  async function openSettings() {
+    clearTimers();
+    try {
+      await api.openSettings();
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
+
+  function confirmScroll() {
+    const action = scrollTree.confirm();
+    navVersion++;
+    restartTimeout();
+    switch (action.kind) {
+      case "start":
+        startFavorite(action.fav);
+        break;
+      case "stop":
+        stopRunning();
+        break;
+      case "close":
+        close();
+        break;
+    }
+  }
+
+  /** Abstract navigation commands (scroll wheel, keys, `aw-manual nav`, hotkey). */
+  function nav(cmd: NavCommand) {
+    if (busy) return;
+    if (prompt?.step === "resume" && cmd === "cancel") {
+      close();
+      return;
+    }
+    if (mode === "scroll") {
+      switch (cmd) {
+        case "next":
+          scrollTree.next();
+          navVersion++;
+          armDwell();
+          restartTimeout();
+          break;
+        case "prev":
+          scrollTree.prev();
+          navVersion++;
+          armDwell();
+          restartTimeout();
+          break;
+        case "confirm":
+          clearTimeout(dwellTimer);
+          dwellArmed = false;
+          confirmScroll();
+          break;
+        case "back":
+          clearTimeout(dwellTimer);
+          dwellArmed = false;
+          scrollTree.back();
+          navVersion++;
+          restartTimeout();
+          break;
+        case "cancel":
+          close();
+          break;
+      }
+      return;
+    }
+    switch (cmd) {
+      case "next":
+        kbIndex = Math.min(kbIndex + 1, kbList.length - 1);
+        break;
+      case "prev":
+        kbIndex = Math.max(kbIndex - 1, 0);
+        break;
+      case "confirm":
+        activateKeyboard();
+        break;
+      case "back":
+        if (!query.trim()) kbIndex = backIndex(kbList, kbIndex);
+        break;
+      case "cancel":
+        close();
+        break;
+    }
+  }
+
+  function activateKeyboard() {
+    const fav = kbList[kbIndex];
+    if (!fav) return;
+    if (prompt?.step === "resume" && fav.id === prompt.next?.id) continueYes();
+    else startFavorite(fav);
+  }
+
+  /** Highlights a leaf in keyboard mode, if it is in the list. */
+  function highlight(id: string): boolean {
+    const i = kbIndexOf.get(id);
+    if (i === undefined) return false;
+    kbIndex = i;
+    return true;
+  }
+
+  /** Switches to keyboard mode (search, tree, note, retroactive entries). */
+  async function enterKeyboard(initial?: string) {
+    if (mode !== "keyboard") {
+      mode = "keyboard";
+      clearTimers();
+      // Continue where scroll mode was: highlight its leaf, or the running one.
+      const item = scrollTree.current();
+      await tick();
+      kbIndex = 0;
+      if (!(item.kind === "leaf" && highlight(item.fav.id)) && running) highlight(running.id);
+    }
+    if (initial !== undefined) query = initial;
+    await tick();
+    searchEl?.focus();
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    const ctrl = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
+    // "Continue with …?": Shift+Y continues, Shift+N asks for another
+    // activity (plain letters go to the search, which ignores case), Esc
+    // closes while the search is empty. Enter starts the highlighted
+    // activity, which is the one to continue unless the highlight was moved.
+    if (prompt?.step === "resume" && !ctrl && !e.altKey && e.target !== noteEl) {
+      if (e.shiftKey && key === "y") {
+        e.preventDefault();
+        continueYes();
+        return;
+      }
+      if (e.shiftKey && key === "n") {
+        e.preventDefault();
+        chooseNow();
+        return;
+      }
+      if (e.key === "Escape" && !query) {
+        e.preventDefault();
+        close();
+        return;
+      }
+    }
+    if (prompt?.step === "gap" && e.key === "Escape" && !query && e.target !== noteEl) {
+      e.preventDefault();
+      skipGap();
+      return;
+    }
+    if (ctrl && key === "s") {
+      e.preventDefault();
+      stopRunning();
+      return;
+    }
+    if (ctrl && key === "n") {
+      e.preventDefault();
+      openNote();
+      return;
+    }
+    if (ctrl && key === "r") {
+      e.preventDefault();
+      enterKeyboard().then(async () => {
+        retro = !retro;
+        await tick();
+        (retro ? rangeEl : searchEl)?.focus();
+      });
+      return;
+    }
+    if (ctrl && e.key === ",") {
+      e.preventDefault();
+      openSettings();
+      return;
+    }
+    if (e.key === "F5") {
+      e.preventDefault();
+      return;
+    }
+
+    if (mode === "scroll") {
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault();
+          nav("next");
+          return;
+        case "ArrowUp":
+          e.preventDefault();
+          nav("prev");
+          return;
+        case "Enter":
+        case "ArrowRight":
+          e.preventDefault();
+          if (e.key === "Enter" && e.shiftKey) {
+            confirmWithNote();
+            return;
+          }
+          nav("confirm");
+          return;
+        case "Backspace":
+        case "ArrowLeft":
+          e.preventDefault();
+          nav("back");
+          return;
+        case "Escape":
+          e.preventDefault();
+          nav("cancel");
+          return;
+        case "Tab":
+          e.preventDefault();
+          enterKeyboard();
+          return;
+      }
+      if (e.key.length === 1 && !ctrl && !e.altKey) {
+        e.preventDefault();
+        enterKeyboard(e.key);
+      }
+      return;
+    }
+
+    // Keyboard mode.
+    const target = e.target as HTMLElement | null;
+    if (target === noteEl) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        applyNote();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        noteOpen = false;
+        noteFor = null;
+        note = "";
+        searchEl?.focus();
+      }
+      return;
+    }
+    if (target === rangeEl) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        searchEl?.focus();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        retro = false;
+        range = "";
+        searchEl?.focus();
+      }
+      return;
+    }
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        nav("next");
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        nav("prev");
+        break;
+      case "PageDown":
+        e.preventDefault();
+        kbIndex = Math.min(kbIndex + 8, kbList.length - 1);
+        break;
+      case "PageUp":
+        e.preventDefault();
+        kbIndex = Math.max(kbIndex - 8, 0);
+        break;
+      case "Enter":
+        e.preventDefault();
+        if (e.shiftKey) {
+          const fav = kbList[kbIndex];
+          if (fav) askNote(fav);
+        } else {
+          nav("confirm");
+        }
+        break;
+      case "Escape":
+        e.preventDefault();
+        if (query) {
+          query = "";
+          kbIndex = 0;
+        } else {
+          close();
+        }
+        break;
+    }
+  }
+
+  /** Wheel in keyboard mode: moves the highlight through the leaves (search results or tree). */
+  function wheelKeyboard(dir: 1 | -1) {
+    const n = kbList.length;
+    if (n === 0) return;
+    const i = kbIndex + dir;
+    kbIndex = (i + n) % n;
+  }
+
+  function onWheel(e: WheelEvent) {
+    e.preventDefault();
+    if (busy) return;
+    const t = performance.now();
+    if (mode === "keyboard") {
+      const step = wheel.vertical(e.deltaY, e.deltaMode, t);
+      if (step !== 0) wheelKeyboard(step > 0 ? 1 : -1);
+      return;
+    }
+    if (snap?.scroll.horizontal && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      const h = wheel.horizontal(e.deltaX, e.deltaMode, t);
+      if (h < 0) confirmWithNote();
+      else if (h > 0) nav("confirm");
+      return;
+    }
+    const step = wheel.vertical(e.deltaY, e.deltaMode, t);
+    if (step > 0) nav("next");
+    else if (step < 0) nav("prev");
+  }
+
+  /** Scroll mode: asks for a note first, then starts the highlighted leaf (Shift+Enter). */
+  function confirmWithNote() {
+    if (busy) return;
+    clearTimeout(dwellTimer);
+    dwellArmed = false;
+    const item = scrollTree.current();
+    if (item.kind === "leaf") askNote(item.fav);
+  }
+
+  function clickNav(i: number) {
+    if (navItems[i]?.kind === "heading") return;
+    scrollTree.index = i;
+    navVersion++;
+    clearTimeout(dwellTimer);
+    dwellArmed = false;
+    confirmScroll();
+  }
+
+  function clickRow(i: number) {
+    kbIndex = i;
+    activateKeyboard();
+  }
+
+  // Keep the highlighted item visible.
+  $effect(() => {
+    void navIndex;
+    void kbIndex;
+    void mode;
+    tick().then(() => {
+      const el = listEl?.querySelector<HTMLElement>(".hl");
+      if (!el || !listEl) return;
+      // Leave room for the sticky headings above the item .
+      const covered = Number(el.dataset.depth ?? 0) * HEADING_PX;
+      const list = listEl.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      if (r.top - list.top < covered) listEl.scrollTop -= covered - (r.top - list.top);
+      else if (r.bottom > list.bottom) listEl.scrollTop += r.bottom - list.bottom;
+    });
+  });
+
+  // New search: highlight the best match.
+  $effect(() => {
+    void query;
+    kbIndex = 0;
+  });
+
+  // Preview of the retroactive time range.
+  $effect(() => {
+    const r = range.trim();
+    if (!retro || !r) {
+      preview = null;
+      return;
+    }
+    const handle = setTimeout(async () => {
+      try {
+        preview = { text: (await api.previewRange(r)).text };
+      } catch (e) {
+        preview = { error: errorText(e) };
+      }
+    }, 120);
+    return () => clearTimeout(handle);
+  });
+
+  onMount(() => {
+    const unlisten = [
+      onOpened((o) => reset(o)),
+      onClosed(() => clearTimers()),
+      onNav((cmd) => nav(cmd)),
+      onStateChanged(() => refresh()),
+    ];
+    const ticker = setInterval(() => (now = Date.now()), 1000);
+    // The page may finish loading after the first "opened" event.
+    api.lastOpened().then((o) => reset(o), () => reset());
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      clearInterval(ticker);
+      window.removeEventListener("wheel", onWheel);
+      unlisten.forEach((p) => p.then((u) => u()));
+    };
+  });
+
+  function dot(fav: Favorite) {
+    return fav.color?.value ?? "transparent";
+  }
+</script>
+
+{#snippet navRow(item: NavItem, i: number)}
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<li
+  role="option"
+  aria-selected={i === navIndex}
+  class:hl={i === navIndex}
+  class={item.kind}
+  style={rowStyle(item)}
+  data-depth={item.kind === "leaf" ? item.depth : undefined}
+  onclick={() => clickNav(i)}
+  oncontextmenu={(e) => {
+    e.preventDefault();
+    if (item.kind === "leaf") askNote(item.fav);
+  }}
+>
+  {#if item.kind === "stop"}
+    <span class="label">■ Stop</span>
+  {:else if item.kind === "cancel"}
+    <span class="label">✕ Cancel</span>
+  {:else if item.kind === "heading"}
+    <span class="dot small" style={`background: ${dot(item.fav)}`}></span>
+    <span class="icon">{iconGlyph(item.fav.icon?.value)}</span>
+    <span class="label">{item.fav.title}</span>
+  {:else}
+    <span class="dot small" style={`background: ${dot(item.fav)}`}></span>
+    <span class="icon">{iconGlyph(item.fav.icon?.value)}</span>
+    <span class="label">{item.fav.title}</span>
+    {#if item.fav.ask_note}<span class="tag" title="Asks for a note">note</span>{/if}
+    {#if item.fav.id === running?.id}<span class="tag">running</span>{/if}
+    {#if item.fav.kind === "status"}<span class="tag">status</span>{/if}
+  {/if}
+  {#if i === navIndex && dwellArmed}
+    {#key dwellKey}<span class="dwell"></span>{/key}
+  {/if}
+</li>
+{/snippet}
+
+{#snippet kbRow(fav: Favorite, i: number, depth: number)}
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<li
+  role="option"
+  aria-selected={i === kbIndex}
+  class:hl={i === kbIndex}
+  class="leaf"
+  style={query.trim() ? undefined : treeStyle("leaf", depth)}
+  data-depth={query.trim() ? undefined : depth}
+  onclick={() => clickRow(i)}
+  oncontextmenu={(e) => {
+    e.preventDefault();
+    askNote(fav);
+  }}
+>
+  <span class="dot small" style={`background: ${dot(fav)}`}></span>
+  <span class="icon">{iconGlyph(fav.icon?.value)}</span>
+  <span class="label">
+    {#if query.trim()}
+      {#if fav.path.length > 1}<span class="muted">{fav.path.slice(0, -1).join(PATH_SEPARATOR) + PATH_SEPARATOR}</span>{/if}{fav.title}
+    {:else}
+      {fav.title}
+    {/if}
+  </span>
+  {#if fav.ask_note}<span class="tag" title="Asks for a note">note</span>{/if}
+  {#if fav.id === running?.id}<span class="tag">running</span>{/if}
+  {#if fav.kind === "status"}<span class="tag">status</span>{/if}
+</li>
+{/snippet}
+
+<!-- Keyboard mode tree: folders are sticky headings, only leaves can be highlighted. -->
+{#snippet kbBranch(nodes: Favorite[], depth: number)}
+  {#each nodes as f (f.id)}
+    {#if f.type === "folder"}
+      <li class="group" role="presentation">
+        <ul role="group">
+          <li class="heading" role="presentation" style={treeStyle("heading", depth)}>
+            <span class="dot small" style={`background: ${dot(f)}`}></span>
+            <span class="icon">{iconGlyph(f.icon?.value)}</span>
+            <span class="label">{f.title}</span>
+          </li>
+          {@render kbBranch(f.children ?? [], depth + 1)}
+        </ul>
+      </li>
+    {:else}
+      {@const i = kbIndexOf.get(f.id) ?? -1}
+      {#if i !== -1}{@render kbRow(f, i, depth)}{/if}
+    {/if}
+  {/each}
+{/snippet}
+
+{#snippet branch(nodes: Favorite[])}
+  {#each nodes as f (f.id)}
+    {#if f.type === "folder"}
+      {@const i = navIndexOf.get("heading:" + f.id) ?? -1}
+      <li class="group" role="presentation">
+        <ul role="group">
+          {#if i !== -1}{@render navRow(navItems[i], i)}{/if}
+          {@render branch(f.children ?? [])}
+        </ul>
+      </li>
+    {:else}
+      {@const i = navIndexOf.get("leaf:" + f.id) ?? -1}
+      {#if i !== -1}{@render navRow(navItems[i], i)}{/if}
+    {/if}
+  {/each}
+{/snippet}
+
+<svelte:window onkeydown={onKeydown} />
+
+<div class="pop" class:keyboard={mode === "keyboard"} style={`--dwell: ${dwellMs}ms`}>
+  <header>
+    {#if running}
+      <div class="running">
+        <span class="dot" style={`background: ${running.color ?? "var(--accent)"}`}></span>
+        <div class="what">
+          <div class="title">
+            {#if iconGlyph(running.icon)}<span class="icon">{iconGlyph(running.icon)}</span>{/if}
+            {running.path.join(PATH_SEPARATOR)}
+            {#if running.kind === "status"}<span class="tag">status</span>{/if}
+          </div>
+          <div class="sub muted">
+            since {snap ? formatClock(new Date(running.start), snap.format.time) : ""} · {elapsedText()}
+            {#if running.note}· {running.note}{/if}
+          </div>
+        </div>
+        <button onclick={stopRunning} disabled={busy} title="Stop (Ctrl+S)">■ Stop</button>
+        <button class="settings" onclick={openSettings} title="Settings (Ctrl+,)" aria-label="Settings">⚙</button>
+      </div>
+    {:else}
+      <div class="running idle">
+        <span class="what muted">No activity running</span>
+        <button class="settings" onclick={openSettings} title="Settings (Ctrl+,)" aria-label="Settings">⚙</button>
+      </div>
+    {/if}
+    {#if prompt}
+      <div class="prompt">
+        {#if prompt.step === "gap"}
+          <div class="q">{gapText(prompt.gap)} What were you doing?</div>
+          <div class="muted">
+            {#if prompt.gap.last}
+              Pick a favorite to log this time (preselected: {prompt.gap.last.path.join(PATH_SEPARATOR)}), or press <kbd>Esc</kbd> to skip.
+            {:else}
+              Pick a favorite to log this time, or press <kbd>Esc</kbd> to skip.
+            {/if}
+          </div>
+        {:else if prompt.step === "resume" && prompt.next}
+          <div class="q">Continue with {prompt.next.path.join(PATH_SEPARATOR)} from now?</div>
+          <div class="buttons">
+            <button class="primary" onclick={continueYes} disabled={busy}>Yes, continue <kbd>Shift</kbd>+<kbd>Y</kbd></button>
+            <button onclick={chooseNow} disabled={busy}>No, something else <kbd>Shift</kbd>+<kbd>N</kbd></button>
+            <button onclick={close} disabled={busy}>Nothing <kbd>Esc</kbd></button>
+          </div>
+          <div class="muted">Or pick another activity below and press <kbd>Enter</kbd> to start it instead.</div>
+        {:else if prompt.step === "choose"}
+          <div class="q">What are you doing now?</div>
+        {/if}
+      </div>
+    {/if}
+    {#if snap && snap.status.server.online === false}
+      <div class="offline">aw-server unreachable – {snap.status.server.pending} entries pending</div>
+    {/if}
+  </header>
+
+  <div class="search">
+    <input
+      bind:this={searchEl}
+      bind:value={query}
+      placeholder={mode === "scroll" ? "Type to search…" : "Search favorites…"}
+      onfocus={() => enterKeyboard()}
+      spellcheck="false"
+      autocomplete="off"
+    />
+    {#if retro}<span class="tag retro">retroactive</span>{/if}
+  </div>
+
+  {#if retro}
+    <div class="retro-row">
+      <input bind:this={rangeEl} bind:value={range} placeholder="-30m · 10:00-11:15 · since 9:30 · 10:00 +45m" spellcheck="false" />
+      <span class="preview" class:error={preview?.error}>{preview?.text ?? preview?.error ?? ""}</span>
+    </div>
+  {/if}
+
+  <ul class="list" bind:this={listEl} tabindex="-1" role="listbox" aria-label="Favorites">
+    {#if mode === "scroll" && !query}
+      <!-- Nested groups, so the headings of the highlighted item stay visible (sticky). -->
+      {#if navItems[0]?.kind === "stop"}{@render navRow(navItems[0], 0)}{/if}
+      {@render branch(snap?.favorites ?? [])}
+      {@render navRow(navItems[navItems.length - 1], navItems.length - 1)}
+    {:else if query.trim()}
+      {#each kbList as fav, i (fav.id)}
+        {@render kbRow(fav, i, 0)}
+      {:else}
+        <li class="empty muted" role="option" aria-selected="false">No matching favorite</li>
+      {/each}
+    {:else if kbList.length > 0}
+      {@render kbBranch(snap?.favorites ?? [], 0)}
+    {:else}
+      <li class="empty muted" role="option" aria-selected="false">No favorites defined – add some in the settings</li>
+    {/if}
+  </ul>
+
+  {#if noteOpen}
+    <div class="note-row">
+      <input
+        bind:this={noteEl}
+        bind:value={note}
+        placeholder={noteFor
+          ? `Note for ${noteFor.path.join(PATH_SEPARATOR)} – Enter ${retro ? "logs" : "starts"} it`
+          : running && !retro
+            ? "New note – Enter applies it to the running activity"
+            : "Note for the activity you start"}
+      />
+    </div>
+  {/if}
+
+  <footer>
+    {#if error}
+      <div class="error">{error}</div>
+    {:else if highlightedPath.length > 0}
+      <div class="path">{highlightedPath.join(PATH_SEPARATOR)}</div>
+    {/if}
+    <div class="hints muted">
+      {#if mode === "scroll"}
+        scroll to select · hotkey/<kbd>Enter</kbd> confirm · type to search · <kbd>Tab</kbd> tree
+      {:else}
+        <kbd>↑↓</kbd>/scroll select · <kbd>Enter</kbd> {retro ? "log" : "start"} · <kbd>Shift</kbd>+<kbd>Enter</kbd>/right click with note · <kbd>Ctrl</kbd>+<kbd>N</kbd> note · <kbd>Ctrl</kbd>+<kbd>R</kbd> retroactive · <kbd>Ctrl</kbd>+<kbd>S</kbd> stop · <kbd>Esc</kbd> close
+      {/if}
+    </div>
+  </footer>
+</div>
+
+<style>
+  .pop {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  header {
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-soft);
+  }
+  .running {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 36px;
+  }
+  .running.idle .what {
+    text-align: center;
+  }
+  .settings {
+    flex: none;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .what {
+    flex: 1;
+    min-width: 0;
+  }
+  .title {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sub {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .prompt {
+    margin-top: 8px;
+    font-size: 13px;
+  }
+  .prompt .q {
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 2px;
+  }
+  .prompt .buttons {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+  }
+  .offline {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--warn);
+  }
+  .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .dot.small {
+    width: 9px;
+    height: 9px;
+    border: 1px solid var(--border);
+  }
+  .search,
+  .retro-row,
+  .note-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 12px 0;
+  }
+  .search input,
+  .retro-row input,
+  .note-row input {
+    flex: 1;
+    min-width: 0;
+  }
+  .preview {
+    font-size: 12px;
+    max-width: 45%;
+  }
+  .list {
+    flex: 1;
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0 6px;
+    overflow-y: auto;
+    outline: none;
+  }
+  .list li {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    overflow: hidden;
+  }
+  .list li:hover {
+    background: var(--bg-hover);
+  }
+  .list li.hl {
+    background: var(--highlight);
+    font-weight: 600;
+  }
+  .list li.stop .label,
+  .list li.cancel .label {
+    color: var(--fg-soft);
+  }
+  .list li.stop .label {
+    color: var(--danger);
+  }
+  .list li.empty {
+    cursor: default;
+  }
+  .list li.heading {
+    cursor: default;
+    color: var(--fg-soft);
+    font-size: 12px;
+    box-sizing: border-box;
+    height: 24px;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-radius: 0;
+    position: sticky;
+    background: var(--bg);
+  }
+  .list li.group {
+    display: block;
+    padding: 0;
+    overflow: visible;
+    cursor: default;
+    border-radius: 0;
+  }
+  .list li.group:hover {
+    background: none;
+  }
+  .list ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .list li.heading:hover {
+    background: none;
+  }
+  .label {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .icon {
+    width: 1.3em;
+    text-align: center;
+    flex: none;
+  }
+  .tag {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    color: var(--fg-soft);
+  }
+  .tag.retro {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .dwell {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    width: 0;
+    background: var(--accent);
+    animation: dwell var(--dwell) linear forwards;
+  }
+  @keyframes dwell {
+    from {
+      width: 0;
+    }
+    to {
+      width: 100%;
+    }
+  }
+  footer {
+    padding: 8px 12px 10px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .path {
+    font-weight: 600;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hints {
+    line-height: 1.8;
+  }
+</style>

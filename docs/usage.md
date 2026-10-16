@@ -76,8 +76,9 @@ Scroll events go to the window under the mouse pointer, so the popover opens
 **under the pointer** (`open_at_cursor`, macOS, Windows, X11). On Wayland,
 windows cannot place themselves, see [Platform notes](#platform-notes).
 
-Scroll mode only starts and stops activities. Notes and retroactive entries
-need the keyboard.
+Scroll mode only starts and stops activities. It can ask for a note
+(Shift+Enter, scrolling left with `horizontal: true`, `_ask_note` favorites),
+but typing it and retroactive entries need the keyboard.
 
 ### Keyboard mode
 

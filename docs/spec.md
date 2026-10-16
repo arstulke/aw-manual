@@ -2,8 +2,8 @@
 
 > Status: v1.0 · implemented in aw-manual 0.1 (MVP) · Date: 2026-10-16
 >
-> This document describes the intended behavior. The user documentation
-> ([README](../README.md), [docs](.)) describes the released state.
+> Phase 1 (MVP) matches the implementation; phases 2 and 3 are planned. The
+> user documentation ([README](../README.md), [docs](.)) has the details.
 
 ## 1. Goal and Context
 
@@ -69,8 +69,9 @@ ActivityWatch (AW) automatically records *what* happens on the computer (windows
 
 ### 4.2 Favorites
 - **Hierarchy** of arbitrary depth, typically: *Client › Project › Task*
-- Each node has: `id` (stable, slug), `title`, optional `color`, `icon`, `kind` (`activity` | `status`, leaves only)
-- `color` and `icon` are **inherited** down the hierarchy and can be overridden on any level (see 7.3)
+- Each node has: `id` (stable, slug), `title`, optional `color`, `icon`, `ask_note`, `kind` (`activity` | `status`, leaves only)
+- `color`, `icon` and `ask_note` are **inherited** down the hierarchy and can be overridden on any level (see 7.3)
+- `ask_note: true` makes a favorite ask for a note whenever it is started from the popover, the tray menu or a hotkey (the CLI never asks)
 - **Only leaves can be started.** Nodes with children are pure folders for organization; they cannot be started or used for retroactive entries. Validation rejects start requests for folder IDs.
 - Favorites are defined in a **folder of YAML files** that may be hand-written or generated (see 7.3)
 - **Order is fixed and manual** (the order in the config files) – no sorting by usage frequency or recency, so positions (including on OpenAction keys) stay stable
@@ -82,7 +83,7 @@ ActivityWatch (AW) automatically records *what* happens on the computer (windows
 
 ### 4.4 ActivityWatch Bucket
 - **One bucket per host**, default ID: `aw-manual_<hostname>` (configurable)
-- Bucket type: `manual.activity` (configurable)
+- Bucket type: `manual.activity` (fixed)
 - `client`: `aw-manual`, `hostname`: current host
 
 Example event:
@@ -109,8 +110,9 @@ Example event:
 - Color/icon are **not** written into the event (presentation detail, resolvable via `id`).
 
 ### 4.5 Write Strategy
-- **Running timer:** The daemon sends periodic heartbeats (e.g. every 60 s, `pulsetime` ≈ 90 s) with identical `data`, so AW merges them into one event. On stop/switch, a final heartbeat with the exact end time is sent. A crash therefore loses at most one interval.
-- **Restart (reboot, re-login, daemon crash):** A previously running activity is **not resumed automatically**. It ends with its last heartbeat. After startup the daemon shows a notification "Last activity: … (ended 09:42)" with a "Resume" action, which starts the activity as a new event from now on.
+- **Running timer:** The daemon sends a heartbeat at the start and then every 60 s with identical `data`, so AW merges them into one event. On stop/switch, a final heartbeat with the exact end time is sent. A crash therefore loses at most one interval.
+  - The first heartbeat of a run has `pulsetime = 0` (it never merges into an earlier event); later heartbeats use a `pulsetime` covering the whole run plus 1.5 intervals, so an activity keeps running as one event across suspend/resume.
+- **Restart (reboot, re-login, daemon crash, quit):** A previously running activity is **not resumed automatically**. It ends with its last heartbeat. The daemon records every 15 s that it is running; if it was stopped for at least `notifications.after_restart` (default 1 min), the popover asks what happened in between and what to continue with (see 6). If the popover can't be opened, a notification "Last activity: … (ended 09:42)" with a "Resume" action is shown instead.
 - **Retroactive entry:** Direct insertion of an event with start and duration.
 - **Overlapping retroactive entries:** The **retroactive entry takes precedence**. Overlapping manual events in the own bucket are trimmed or split without asking. If the retroactive entry overlaps the running activity, the running activity restarts at the end of the retroactive entry.
 - Other buckets are never modified.
@@ -132,16 +134,17 @@ Opens via global hotkey, tray click or `aw-manual popover`.
 
 **Features (MVP):**
 - **Fuzzy search** across all favorites including their path ("acm web dev" → *ACME › Website › Development*); results are leaves only
-- **Fully keyboard-operable** (arrow keys, Enter = start, Esc = close, shortcut for stop, shortcut for note)
-- Shows the **running activity** with duration and a stop action
+- **Fully keyboard-operable** (arrow keys, Enter = start, Esc = close, Ctrl+S = stop, Ctrl+N = note, Ctrl+R = retroactive, Ctrl+, = settings, Tab = tree)
+- Shows the **running activity** with duration, a stop action and a settings button
 - Favorites list in **fixed, configured order**, the whole tree expanded with folders as pinned headings; only leaves can be highlighted
 - **Retroactive mode:** relative or absolute time input, e.g. `-30m`, `10:00-11:15`, `since 9:30`
 - Optional note field; while an activity is running, a new note creates a new activity (see 4.3)
+- Shift+Enter or a right click on a favorite asks for a note first; favorites with `ask_note` always ask
 
 **Scroll mode (MVP): operation with hotkey + scroll wheel only**
 The popover must be fully operable without keyboard, mouse click or touch. **The reference device is a regular desktop mouse** (notched scroll wheel, hotkey e.g. on a mouse side button). Other devices (foot switch + wheel, macro button, rotary knob) are supported through the same mechanisms.
 
-**Scope:** Scroll mode covers **starting and stopping** activities only. Retroactive entries and notes are deliberately not available in scroll mode; they remain in keyboard mode.
+**Scope:** Scroll mode covers **starting and stopping** activities. It can start a favorite "with a note" (Shift+Enter, wheel tilt left, or `ask_note` favorites); typing the note then needs the keyboard. Retroactive entries are deliberately not available in scroll mode; they remain in keyboard mode. Typing a letter switches to keyboard mode (search), Tab to the keyboard-mode tree.
 
 - **Open:** Hotkey. Focus is immediately on the favorites list.
 - **Layout:** the whole tree expanded, with folders as headings.
@@ -155,13 +158,14 @@ The popover must be fully operable without keyboard, mouse click or touch. **The
 - **Navigation items** inside the list, also reachable by scrolling:
   - "■ Stop" as the first item of the top level while an activity is running
   - "✕ Cancel" as the last item
+- **Back** (Backspace, ←, `nav back`) jumps to the first leaf of the current folder, then to the first leaf of the previous folder.
 - **Abort without input:** The popover closes after 10 s without input (longer when the dwell time needs it).
 - **Start position:** On open, the highlight is on the running activity or the first item (configurable).
 - **Scroll behavior:**
   - Default: one notch of the mouse wheel = one step
   - Deltas are accumulated, one step per threshold, so high-resolution wheels and touchpads don't "race through"
   - Wrap around at the end of the list
-  - Horizontal scrolling or wheel tilt (if available) optionally acts as Confirm (right) and Confirm with a note (left)
+  - Horizontal scrolling or wheel tilt (if available) optionally acts as Confirm (right) and Confirm with a note (left) (`popover.scroll.horizontal`, default: off)
 - **Readability:** The highlighted item is clearly emphasized and shown with its full path, since search isn't available without a keyboard.
 
 **Input abstraction:** Internally the popover works with abstract navigation commands `next`, `prev`, `confirm`, `back`, `cancel`. They can be triggered by:
@@ -178,7 +182,7 @@ This lets scroll mode work even where a device sends key presses instead of scro
 
 ### 5.2 Tray / Status Bar
 - **Icon states:** idle (no activity), active (optionally tinted in the favorite's color), offline/pending
-- Click opens the popover; context menu with: Stop, Resume, Favorites (fixed order, nested, only leaves startable), Settings, Quit
+- Click opens the popover (where the platform reports clicks; AppIndicator trays only open the menu); context menu with: the running activity and "Running for 1h 23m (since 09:30)", the offline state with pending entries, Open popover, Stop, Leave a note…, Resume (with the path of the last activity), Favorites (fixed order, nested, only leaves startable), Settings…, Quit
 
 **Configurable display next to the icon:**
 The user chooses which text appears next to the icon while an activity is running:
@@ -192,15 +196,15 @@ The user chooses which text appears next to the icon while an activity is runnin
 | `template` – free combination | `{title} · {elapsed}` |
 
 - Template placeholders: `{title}`, `{path}`, `{elapsed}`, `{since}`, `{note}`
-- Configurable formats: `elapsed` as `1h 23m` or `1:23`; `since` in 24h or 12h format
-- Text updates once per minute (or once per second if a format includes seconds)
+- Configurable formats (`format.elapsed`, `format.time`, shared by tray, popover, CLI and notifications): `elapsed` as `1h 23m`, `1:23`, `1h 23m 45s` or `1:23:45` (`1h 23m` shows seconds during the first minute); `since` in 24h or 12h format
+- Text is re-rendered every second and only updated when it changes
 - The tooltip always shows full information (path, start time, duration, note), regardless of display mode
 - **Platform limits:** Text next to the icon is possible on macOS (menu bar) and on Linux with an AppIndicator label (GNOME, KDE). Windows cannot show text in the notification area; only the tooltip applies there. For Waybar and similar bars, `aw-manual status --format '…' --follow` provides the same placeholders as a custom module.
 
 ### 5.3 Global Hotkeys (hybrid)
 - **macOS, Windows, Linux/X11:** Hotkeys registered directly in the daemon, configurable; besides key combinations also **mouse buttons** (e.g. side buttons), so a regular mouse suffices without a keyboard
 - **Linux/Wayland:** XDG GlobalShortcuts portal where available (KDE, newer GNOME versions); otherwise binding in the compositor/system to CLI commands (e.g. Hyprland `bind = SUPER, T, exec, aw-manual popover`, or for mouse buttons `bind = , mouse:276, exec, aw-manual popover`). Example configurations are documented.
-- Default actions: open popover, stop, resume last stopped activity; optionally hotkeys for individual favorites
+- Default actions: open popover (`Ctrl+Alt+Space`), stop (`Ctrl+Alt+S`), resume last stopped activity (`Ctrl+Alt+R`); optionally hotkeys for individual favorites (`hotkeys.favorites`, favorites with `ask_note` open the popover for the note)
 - **The popover hotkey is context-dependent:** closed → open; open → `confirm` (scroll mode). This also applies when the hotkey is triggered via `aw-manual popover` on Wayland.
 
 ### 5.4 CLI
@@ -211,16 +215,21 @@ aw-manual start <favorite-id> [--note TEXT]
 aw-manual start --adhoc --id ID --title TITLE [--path A/B/C] [--kind activity|status] [--note TEXT]
 aw-manual note TEXT                     # new note: ends the running activity and restarts it with the note
 aw-manual stop
-aw-manual toggle <favorite-id>          # start, or stop if already running
+aw-manual toggle <favorite-id> [--note TEXT]   # start, or stop if already running
 aw-manual resume                        # resume the last stopped activity
-aw-manual log <favorite-id> --from T --to T | --last 30m [--note TEXT]
+aw-manual log <favorite-id> (--from T --to T | --from T --duration D | --last D | --range EXPR) [--note TEXT]
 aw-manual status [--json] [--format TEMPLATE] [--follow]
 aw-manual list [--json]                 # favorites including hierarchy and order
-aw-manual config check                  # validate config.yaml and all favorites files
+aw-manual config check [--strict]       # validate config.yaml and all favorites files
+aw-manual config path                   # print the configuration folder
 aw-manual popover                       # open, or confirm if already open
 aw-manual nav next|prev|confirm|back|cancel
-aw-manual watch --json                  # stream state changes as JSON lines
+aw-manual watch                         # stream state changes as JSON lines
+aw-manual settings                      # open the settings window
+aw-manual reload                        # reload configuration and favorites
+aw-manual quit                          # quit the daemon
 ```
+`--json` is a global flag for machine-readable output.
 - `start`, `toggle` and `log` accept leaf IDs only; folder IDs result in an error
 - Stable, documented exit codes and JSON output (versioned schema)
 - If the daemon isn't running, the CLI starts it (configurable) or reports a clear error
@@ -281,10 +290,11 @@ Unknown or custom hardware (Timebuzzer, programmable cube …) is supported as s
 - Communicates through the existing daemon interface
 
 ## 6. Notifications
-Native system notifications, each individually toggleable:
+Native system notifications, each individually toggleable. Notification actions are available on Linux; on macOS and Windows the notifications have no buttons and the tray menu offers the same commands.
 - **No timer running:** Reminder when no activity has been running for more than X minutes (default 15) – only within configurable working hours (weekdays/times), since there is no dependency on AFK data
 - **Long-running activity:** Notice when the same activity has been running for more than X hours (default 3 h); notification actions: "Continue", "Stop", "Open popover"
-- **After restart / unlocking the screen:** The popover asks what the user did in between (retroactive entry for the gap), then whether to continue with that activity from now, otherwise which activity to start
+- **After restart / unlocking the screen:** The popover asks what the user did in between (retroactive entry for the gap, prefilled to the second), then whether to continue with that activity from now, otherwise which activity to start. Only if aw-manual was stopped / the screen was locked for at least `after_restart` / `after_unlock` (default 1 min each, `false` disables). After a shorter restart it only offers to continue the activity that was running.
+- **Idle reminder** notifications offer "Open popover"
 - **Offline:** One-time notice when entries are being buffered
 - Status permanently visible in the tray (see 5.2)
 
@@ -308,44 +318,62 @@ Configuration is written in **YAML** and split into two parts: the **base config
 - Both parts are version-controllable (dotfiles-friendly). A generated file can be excluded from version control on its own.
 
 ### 7.2 Base Configuration (`config.yaml`)
+All settings are optional. On first start the daemon writes this commented file with the defaults:
 ```yaml
+# aw-manual base configuration
+# All settings are optional; the values below are the defaults.
+# Favorites live in separate files, see favorites.d/
+schema_version: 1
+
 server:
-  url: http://localhost:5600        # remote server also possible
-  bucket_id: "aw-manual_{hostname}"
+  url: http://localhost:5600        # a remote aw-server is possible as well
+  bucket_id: "aw-manual_{hostname}" # {hostname} = this computer's name
 
 favorites:
-  dirs:                             # loaded in this order; default: [favorites.d]
+  dirs:                             # loaded in this order; relative to this folder, ~ = home
     - favorites.d
-    # - ~/Sync/aw-manual-favorites  # e.g. a shared or synced folder
-  default_file: 00-ui.yaml          # new top-level favorites from the settings window
+  default_file: 00-ui.yaml          # new top-level favorites from the settings window (in the first folder)
 
 hotkeys:
-  popover: Ctrl+Alt+Space           # alternatively a mouse button, e.g. Mouse4
+  popover: Ctrl+Alt+Space           # alternatively a mouse button, e.g. Mouse4; empty or false disables
   stop: Ctrl+Alt+S
+  resume: Ctrl+Alt+R
+  favorites:                        # favorite ID → hotkey
+    # acme/website/development: Ctrl+Alt+1
 
 tray:
   display: template                 # icon | elapsed | since | title | template
-  template: "{title} · {elapsed}"
+  template: "{title} · {elapsed}"   # {title} {path} {elapsed} {since} {note}
   color_icon: true                  # tint the icon in the favorite's color
 
-format:                             # tray, popover, CLI, notifications
-  elapsed: 1h 23m                   # "1h 23m" | "1:23"
+format:                             # used by the tray, popover, CLI and notifications
+  elapsed: 1h 23m                   # "1h 23m" | "1:23" | "1h 23m 45s" | "1:23:45"
   time: 24h                         # 24h | 12h
 
 notifications:
-  idle_reminder: 15m
-  long_running: 3h
-  work_hours:
+  idle_reminder: 15m                # false to disable
+  long_running: 3h                  # false to disable
+  after_restart: 1m                 # after a (re-)start: ask what you did if aw-manual was stopped at least 1m; false to disable
+  after_unlock: 1m                  # after unlocking: ask what you did if the screen was locked at least 1m; false to disable
+  offline: true                     # tell me when entries are buffered (aw-server unreachable)
+  work_hours:                       # for the idle reminder
     days: [mon, tue, wed, thu, fri]
     from: "08:00"
     to: "18:00"
 
 popover:
   scroll:
-    confirm_with_hotkey: true
-    dwell_time: false               # e.g. 2s: confirm by dwell time
+    confirm_with_hotkey: true       # pressing the popover hotkey again confirms
+    dwell_time: false               # e.g. 2s: confirm when an item stays highlighted that long; false to disable
     open_at_cursor: true
     start_at: running               # running | first
+    horizontal: false               # horizontal scrolling / wheel tilt: right = confirm, left = confirm with a note
+
+cli:
+  autostart_daemon: true            # the CLI starts the daemon if needed
+
+log:
+  level: info                       # error | warn | info | debug | trace
 ```
 
 ### 7.3 Favorites Files (`favorites.d/*.yaml`)
@@ -374,7 +402,7 @@ favorites:
 ```
 
 Rules:
-- **Properties:** `_id`, `_color`, `_icon`, `_kind`. Unknown keys starting with `_` are an error, so typos are caught. Titles must not start with `_`.
+- **Properties:** `_id`, `_color`, `_icon`, `_kind`, `_ask_note`. Unknown keys starting with `_` are an error, so typos are caught. Titles must not start with `_`.
 - **Leaf vs. folder:** A node is a leaf if it has no child keys, i.e. its value is empty (`Code Review:`) or contains only properties (`Development: {_icon: code}`). As soon as it has a child key, it's a folder.
 - **List shorthand for leaves:** A folder's children can be given as a list of titles if none of them needs properties:
   ```yaml
@@ -402,10 +430,10 @@ favorites:
     icon: bug
     children: []                    # optional; leaves have no or empty children
 ```
-Fields: `id` (required), `title` (required), `color`, `icon`, `kind`, `children`. Resulting IDs: `acme/website/web-123`, `acme/website/web-140`.
+Fields: `id` (required), `title` (required), `color`, `icon`, `kind`, `ask_note`, `children`. Resulting IDs: `acme/website/web-123`, `acme/website/web-140`.
 
-#### Inheritance of color and icon (both notations)
-- `color` and `icon` are **inherited** from the nearest ancestor that defines them. A child only needs its own value to override it.
+#### Inheritance of color, icon and ask_note (both notations)
+- `color`, `icon` and `ask_note` are **inherited** from the nearest ancestor that defines them. A child only needs its own value to override it.
 - This lets a client's color apply to all its projects and tasks with a single line, which is also how it shows on OpenAction keys and in the tray.
 - `kind` is **not** inherited; it's only meaningful on leaves and defaults to `activity`. `kind` on a folder is an error.
 - With `parent`, the attached favorites inherit from the referenced folder, even if that folder is defined in another file.
@@ -441,12 +469,12 @@ A file can set `parent` (full ID of a folder or leaf) to hang its favorites unde
   - Comments and order are preserved when writing: the UI edits the source text at the spans of the parsed nodes instead of re-serializing the file. Layouts it can't edit safely (e.g. flow mappings) produce an error asking the user to edit the file by hand.
 
 ## 8. Distribution & Operations
-- **License:** Open source (suggestion: MPL-2.0, like ActivityWatch)
+- **License:** MPL-2.0, like ActivityWatch
 - **Packages:**
   - Linux: `.deb`, **Nix flake** (package + NixOS/Home Manager module), optionally AppImage/`.rpm`
-  - macOS: signed and notarized `.dmg` (universal binary), optionally Homebrew Cask
-  - Windows: `.msi` and `.exe` (NSIS), signed
-- **Autostart** per platform (LaunchAgent, registry/startup, XDG autostart or systemd user service), toggleable in settings
+  - macOS: `.dmg` (universal binary), signed and notarized when the Apple credentials are configured in CI; optionally Homebrew Cask
+  - Windows: `.msi` and `.exe` (NSIS), signed when a signing command is configured
+- **Autostart** per platform (LaunchAgent, registry, XDG autostart; with the Nix modules a systemd user service), toggleable in settings
 - The CLI is installed alongside and placed on the `PATH`
 - **OpenAction plugin** (Phase 2) is published separately as an `.sdPlugin` package (or `.streamDeckPlugin` for the Elgato software) with binaries for `x86_64`/`aarch64` on all three platforms; the goal is a listing on the OpenAction Marketplace. Optionally the app installs the plugin on request into a detected OpenDeck plugin folder.
 - CI builds for all platforms (GitHub Actions)
@@ -478,7 +506,7 @@ A file can set `parent` (full ID of a folder or leaf) to hang its favorites unde
 
 **Possible later extensions (not planned)**
 - Timeline view with visual editing (click-drag) and context from other AW buckets
-- Retroactive entries and notes in scroll mode
+- Retroactive entries in scroll mode
 
 ## 11. Decisions
 
@@ -492,9 +520,9 @@ A file can set `parent` (full ID of a folder or leaf) to hang its favorites unde
 | Resume after restart | Not automatic; the popover asks what happened in between and what to continue with (also after unlocking the screen) |
 | Remote aw-server | URL freely configurable |
 | Scroll mode confirmation | Hotkey and/or dwell time |
-| Scroll mode scope | Start and stop only; no retroactive entries or notes |
+| Scroll mode scope | Start and stop (optionally asking for a note); no retroactive entries |
 | Reference scroll device | Regular desktop mouse |
 | Configuration format | YAML; base config and favorites folder separated |
-| Favorites notation | Compact (titles as keys, `_`-prefixed properties) and explicit (list of objects); color/icon inherited |
+| Favorites notation | Compact (titles as keys, `_`-prefixed properties) and explicit (list of objects); color/icon/ask_note inherited |
 | Project name | aw-manual (bucket `aw-manual_<hostname>`, CLI `aw-manual`) |
 | YAML library | `saphyr-parser` with an own document model that keeps order and source positions; comment-preserving edits on the source text (`crates/core/src/yaml_edit.rs`) |

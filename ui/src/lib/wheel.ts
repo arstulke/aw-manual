@@ -5,7 +5,7 @@
  *   a regular mouse wheel is one step regardless of the platform's delta size.
  * - Within a burst of events (high-resolution wheels, touchpads), deltas are
  *   accumulated and one step is produced per threshold, so they don't race
- *   through the list. `sensitivity` scales the threshold.
+ *   through the list.
  */
 export class WheelSteps {
   private acc = 0;
@@ -13,14 +13,9 @@ export class WheelSteps {
   private lastHorizontal = -Infinity;
 
   constructor(
-    private sensitivity = 1,
     private readonly pauseMs = 160,
-    private readonly basePx = 40,
+    private readonly thresholdPx = 40,
   ) {}
-
-  setSensitivity(s: number): void {
-    this.sensitivity = s > 0 ? s : 1;
-  }
 
   private px(delta: number, mode: number): number {
     return mode === 1 ? delta * 40 : mode === 2 ? delta * 800 : delta;
@@ -35,8 +30,7 @@ export class WheelSteps {
     if (fresh || Math.sign(d) !== Math.sign(this.acc)) this.acc = 0;
     if (fresh) return Math.sign(d);
     this.acc += d;
-    const threshold = this.basePx * this.sensitivity;
-    if (Math.abs(this.acc) >= threshold) {
+    if (Math.abs(this.acc) >= this.thresholdPx) {
       const step = Math.sign(this.acc);
       this.acc = 0;
       return step;

@@ -32,7 +32,7 @@ pub fn get_snapshot(svc: Svcs<'_>) -> Value {
         "status": svc.status_json(),
         "favorites": loaded.favorites.tree.roots,
         "scroll": cfg.popover.scroll,
-        "tray": { "elapsed_format": cfg.tray.elapsed_format, "time_format": cfg.tray.time_format },
+        "format": cfg.format,
         "hotkeys": cfg.hotkeys,
     })
 }
@@ -78,12 +78,12 @@ pub fn set_note(svc: Svcs<'_>, note: Option<String>) -> Result<Value, String> {
 #[tauri::command]
 pub fn preview_range(svc: Svcs<'_>, range: String) -> Result<Value, String> {
     let (start, end) = timeparse::parse_range(&range, &Local::now())?;
-    let cfg = svc.config().tray;
+    let cfg = svc.config().format;
     let text = format!(
         "{}–{} ({})",
-        format_clock(&start.with_timezone(&Local), cfg.time_format),
-        format_clock(&end.with_timezone(&Local), cfg.time_format),
-        format_elapsed((end - start).num_seconds(), cfg.elapsed_format)
+        format_clock(&start.with_timezone(&Local), cfg.time),
+        format_clock(&end.with_timezone(&Local), cfg.time),
+        format_elapsed((end - start).num_seconds(), cfg.elapsed)
     );
     let day = start.with_timezone(&Local).date_naive();
     let text = if day != Local::now().date_naive() {
@@ -130,7 +130,7 @@ pub fn get_settings(app: AppHandle, svc: Svcs<'_>, errors: State<'_, HotkeyError
         "config_path": config_path,
         "favorite_dirs": svc.config().favorite_dirs(svc.config_dir()),
         "writable_files": settings::writable_files(&svc),
-        "ui_file": settings::UI_FILE,
+        "ui_file": svc.config().favorites.default_file,
         "hotkey_errors": *errors.0.lock().unwrap(),
         "autostart": app.autolaunch().is_enabled().unwrap_or(false),
         "wayland": crate::popover::is_wayland(),

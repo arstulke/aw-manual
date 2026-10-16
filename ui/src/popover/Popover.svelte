@@ -3,7 +3,7 @@
   import { api, errorText, onClosed, onNav, onOpened, onStateChanged, type Gap, type Opened } from "../lib/api";
   import { formatClock, formatElapsed, iconGlyph, parseDuration, PATH_SEPARATOR } from "../lib/format";
   import { leaves, search } from "../lib/fuzzy";
-  import { DrillDown, ExpandedTree, type NavItem, type ScrollNav } from "../lib/nav";
+  import { ExpandedTree, type NavItem } from "../lib/nav";
   import { backIndex } from "../lib/tree";
   import type { Favorite, NavCommand, Snapshot } from "../lib/types";
   import { WheelSteps } from "../lib/wheel";
@@ -36,7 +36,7 @@
   let dwellArmed = $state(false);
   let dwellKey = $state(0);
 
-  let drill: ScrollNav = new DrillDown([], null, false);
+  let drill = new ExpandedTree([], null);
   const wheel = new WheelSteps();
   let dwellTimer: ReturnType<typeof setTimeout> | undefined;
   let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
@@ -47,8 +47,11 @@
   let listEl = $state<HTMLElement>();
 
   const running = $derived(snap?.status.running ?? null);
-  const dwellMs = $derived(snap ? parseDuration(snap.scroll.dwell_time) : 2000);
-  const timeoutMs = $derived(snap ? parseDuration(snap.scroll.timeout) : 10000);
+  const SCROLL_TIMEOUT_MS = 10_000;
+  /** Dwell confirmation time; 0 = disabled. */
+  const dwellMs = $derived(snap && snap.scroll.dwell_time !== false ? parseDuration(snap.scroll.dwell_time) : 0);
+  /** Scroll mode closes after this long without input (always longer than the dwell time). */
+  const timeoutMs = $derived(Math.max(SCROLL_TIMEOUT_MS, dwellMs + 2000));
   const results = $derived(snap && query.trim() ? search(snap.favorites, query) : []);
   /**
    * The leaves keyboard mode moves through: the search results, or all leaves
@@ -77,8 +80,8 @@
   }
 
   function rowStyle(item: NavItem): string | undefined {
-    if (item.kind === "back" || item.kind === "stop" || item.kind === "cancel" || item.kind === "folder") return undefined;
-    return treeStyle(item.kind, item.depth ?? 0);
+    if (item.kind === "stop" || item.kind === "cancel") return undefined;
+    return treeStyle(item.kind, item.depth);
   }
 
   const navIndex = $derived.by(() => {
@@ -94,14 +97,13 @@
 
   function elapsedText(): string {
     if (!running || !snap) return "";
-    return formatElapsed((now - Date.parse(running.start)) / 1000, snap.tray.elapsed_format);
+    return formatElapsed((now - Date.parse(running.start)) / 1000, snap.format.elapsed);
   }
 
   async function refresh() {
     try {
       snap = await api.snapshot();
       drill.update(snap.favorites, snap.status.running?.id ?? null);
-      wheel.setSensitivity(snap.scroll.sensitivity);
       navVersion++;
     } catch (e) {
       error = errorText(e);
@@ -124,7 +126,7 @@
   function armDwell() {
     clearTimeout(dwellTimer);
     dwellArmed = false;
-    if (!snap?.scroll.dwell_confirm || mode !== "scroll") return;
+    if (!dwellMs || mode !== "scroll") return;
     dwellArmed = true;
     dwellKey++;
     dwellTimer = setTimeout(() => {
@@ -162,8 +164,7 @@
     kbIndex = 0;
     await refresh();
     if (!snap) return;
-    const Nav = snap.scroll.layout === "levels" ? DrillDown : ExpandedTree;
-    drill = new Nav(snap.favorites, snap.status.running?.id ?? null, snap.scroll.wrap_around);
+    drill = new ExpandedTree(snap.favorites, snap.status.running?.id ?? null);
     drill.startAt(snap.scroll.start_at);
     navVersion++;
     const fav = opened?.favorite ? findFavorite(snap.favorites, opened.favorite) : null;
@@ -274,7 +275,7 @@
   }
 
   function gapText(gap: Gap): string {
-    const fmt = snap?.tray.time_format ?? "24h";
+    const fmt = snap?.format.time ?? "24h";
     const from = formatClock(new Date(gap.start), fmt);
     const to = formatClock(new Date(gap.end), fmt);
     const len = formatElapsed(gap.seconds, "1h 23m");
@@ -553,9 +554,7 @@
         case "ArrowRight":
           e.preventDefault();
           if (e.key === "Enter" && e.shiftKey) {
-            // Shift+Enter: ask for a note first, then start the highlighted leaf.
-            const item = drill.current();
-            if (item.kind === "leaf") askNote(item.fav);
+            confirmWithNote();
             return;
           }
           nav("confirm");
@@ -651,8 +650,7 @@
     const n = kbList.length;
     if (n === 0) return;
     const i = kbIndex + dir;
-    if (i >= 0 && i < n) kbIndex = i;
-    else if (snap?.scroll.wrap_around ?? true) kbIndex = (i + n) % n;
+    kbIndex = (i + n) % n;
   }
 
   function onWheel(e: WheelEvent) {
@@ -666,13 +664,22 @@
     }
     if (snap?.scroll.horizontal && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
       const h = wheel.horizontal(e.deltaX, e.deltaMode, t);
-      if (h < 0) nav("back");
+      if (h < 0) confirmWithNote();
       else if (h > 0) nav("confirm");
       return;
     }
     const step = wheel.vertical(e.deltaY, e.deltaMode, t);
     if (step > 0) nav("next");
     else if (step < 0) nav("prev");
+  }
+
+  /** Scroll mode: asks for a note first, then starts the highlighted leaf (Shift+Enter). */
+  function confirmWithNote() {
+    if (busy) return;
+    clearTimeout(dwellTimer);
+    dwellArmed = false;
+    const item = drill.current();
+    if (item.kind === "leaf") askNote(item.fav);
   }
 
   function clickNav(i: number) {
@@ -760,16 +767,14 @@
   class:hl={i === navIndex}
   class={item.kind}
   style={rowStyle(item)}
-  data-depth={item.kind === "leaf" && snap?.scroll.layout !== "levels" ? item.depth : undefined}
+  data-depth={item.kind === "leaf" ? item.depth : undefined}
   onclick={() => clickNav(i)}
   oncontextmenu={(e) => {
     e.preventDefault();
     if (item.kind === "leaf") askNote(item.fav);
   }}
 >
-  {#if item.kind === "back"}
-    <span class="label">‹ Back</span>
-  {:else if item.kind === "stop"}
+  {#if item.kind === "stop"}
     <span class="label">■ Stop</span>
   {:else if item.kind === "cancel"}
     <span class="label">✕ Cancel</span>
@@ -781,10 +786,9 @@
     <span class="dot small" style={`background: ${dot(item.fav)}`}></span>
     <span class="icon">{iconGlyph(item.fav.icon?.value)}</span>
     <span class="label">{item.fav.title}</span>
-    {#if item.kind === "folder"}<span class="chev">›</span>{/if}
-    {#if item.kind === "leaf" && item.fav.ask_note}<span class="tag" title="Asks for a note">note</span>{/if}
-    {#if item.kind === "leaf" && item.fav.id === running?.id}<span class="tag">running</span>{/if}
-    {#if item.kind === "leaf" && item.fav.kind === "status"}<span class="tag">status</span>{/if}
+    {#if item.fav.ask_note}<span class="tag" title="Asks for a note">note</span>{/if}
+    {#if item.fav.id === running?.id}<span class="tag">running</span>{/if}
+    {#if item.fav.kind === "status"}<span class="tag">status</span>{/if}
   {/if}
   {#if i === navIndex && dwellArmed}
     {#key dwellKey}<span class="dwell"></span>{/key}
@@ -874,7 +878,7 @@
             {#if running.kind === "status"}<span class="tag">status</span>{/if}
           </div>
           <div class="sub muted">
-            since {snap ? formatClock(new Date(running.start), snap.tray.time_format) : ""} · {elapsedText()}
+            since {snap ? formatClock(new Date(running.start), snap.format.time) : ""} · {elapsedText()}
             {#if running.note}· {running.note}{/if}
           </div>
         </div>
@@ -936,15 +940,11 @@
   {/if}
 
   <ul class="list" bind:this={listEl} tabindex="-1" role="listbox" aria-label="Favorites">
-    {#if mode === "scroll" && !query && snap?.scroll.layout !== "levels"}
-      <!-- Tree layout: nested groups, so the headings of the highlighted item stay visible (sticky). -->
+    {#if mode === "scroll" && !query}
+      <!-- Nested groups, so the headings of the highlighted item stay visible (sticky). -->
       {#if navItems[0]?.kind === "stop"}{@render navRow(navItems[0], 0)}{/if}
       {@render branch(snap?.favorites ?? [])}
       {@render navRow(navItems[navItems.length - 1], navItems.length - 1)}
-    {:else if mode === "scroll" && !query}
-      {#each navItems as item, i (i + ":" + (item.kind === "folder" || item.kind === "leaf" || item.kind === "heading" ? item.fav.id : item.kind))}
-        {@render navRow(item, i)}
-      {/each}
     {:else if query.trim()}
       {#each kbList as fav, i (fav.id)}
         {@render kbRow(fav, i, 0)}
@@ -1107,7 +1107,6 @@
     background: var(--highlight);
     font-weight: 600;
   }
-  .list li.back .label,
   .list li.stop .label,
   .list li.cancel .label {
     color: var(--fg-soft);
@@ -1159,9 +1158,6 @@
     width: 1.3em;
     text-align: center;
     flex: none;
-  }
-  .chev {
-    color: var(--fg-soft);
   }
   .tag {
     font-size: 11px;

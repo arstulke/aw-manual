@@ -10,7 +10,9 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 
-use crate::config::{load_config_file, Config, ConfigLoad, CONFIG_FILE};
+use crate::config::{
+    load_config_file, Config, ConfigLoad, BUCKET_TYPE, CONFIG_FILE, HEARTBEAT_INTERVAL,
+};
 use crate::engine::{Change, Engine, EngineSettings, ErrorCode, Target};
 use crate::favorites::{load_favorites, FavoritesCache, FavoritesLoad, FileReport};
 use crate::ipc::{
@@ -128,14 +130,14 @@ fn read_config(config_dir: &Path, previous: Option<&Config>) -> (Config, ConfigS
 fn engine_settings(cfg: &Config, hostname: &str) -> EngineSettings {
     EngineSettings {
         bucket: cfg.bucket_id(hostname),
-        heartbeat_interval: cfg.server.heartbeat_interval,
+        heartbeat_interval: HEARTBEAT_INTERVAL,
     }
 }
 
 fn server_target(cfg: &Config, hostname: &str) -> ServerTarget {
     ServerTarget {
         url: cfg.server.url.clone(),
-        bucket_type: cfg.server.bucket_type.clone(),
+        bucket_type: BUCKET_TYPE.into(),
         bucket: cfg.bucket_id(hostname),
     }
 }

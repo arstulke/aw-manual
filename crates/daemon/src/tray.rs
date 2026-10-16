@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use aw_manual_core::config::TrayConfig;
+use aw_manual_core::config::FormatConfig;
 use aw_manual_core::display;
 use aw_manual_core::engine::RunningInfo;
 use aw_manual_core::engine::Status;
@@ -159,11 +159,11 @@ fn menu_key(st: &Status, svc: &Svc) -> String {
 }
 
 /// "Running for 1h 23m (since 09:30)".
-fn elapsed_line(cfg: &TrayConfig, r: &RunningInfo, now: DateTime<Utc>) -> String {
+fn elapsed_line(cfg: &FormatConfig, r: &RunningInfo, now: DateTime<Utc>) -> String {
     format!(
         "Running for {} (since {})",
-        format_elapsed((now - r.start).num_seconds(), cfg.elapsed_format),
-        format_clock(&r.start.with_timezone(&Local), cfg.time_format)
+        format_elapsed((now - r.start).num_seconds(), cfg.elapsed),
+        format_clock(&r.start.with_timezone(&Local), cfg.time)
     )
 }
 
@@ -189,7 +189,7 @@ fn build_menu(
             let item = MenuItem::with_id(
                 app,
                 "info-elapsed",
-                elapsed_line(&svc.config().tray, r, Utc::now()),
+                elapsed_line(&svc.config().format, r, Utc::now()),
                 false,
                 None::<&str>,
             )?;
@@ -343,8 +343,8 @@ pub fn update_text(app: &AppHandle, svc: &Arc<Svc>) {
     let st = status(svc);
     let (text, tooltip) = match &st.running {
         Some(r) => (
-            display::tray_text(&cfg.tray, r, now),
-            display::tooltip(&cfg.tray, r, now),
+            display::tray_text(&cfg, r, now),
+            display::tooltip(&cfg, r, now),
         ),
         None => (None, "aw-manual – no activity running".to_string()),
     };
@@ -363,7 +363,7 @@ pub fn update_text(app: &AppHandle, svc: &Arc<Svc>) {
         *cached_text = Some(text);
     }
     if let (Some(item), Some(r)) = (cache.elapsed_item.lock().unwrap().as_ref(), &st.running) {
-        let line = elapsed_line(&cfg.tray, r, now);
+        let line = elapsed_line(&cfg.format, r, now);
         let mut cached = cache.elapsed_text.lock().unwrap();
         if cached.as_ref() != Some(&line) {
             let _ = item.set_text(&line);

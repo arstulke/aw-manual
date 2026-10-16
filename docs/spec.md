@@ -291,10 +291,9 @@ Unknown or custom hardware (Timebuzzer, programmable cube …) is supported as s
 
 ## 6. Notifications
 Native system notifications, each individually toggleable. Notification actions are available on Linux; on macOS and Windows the notifications have no buttons and the tray menu offers the same commands.
-- **No timer running:** Reminder when no activity has been running for more than X minutes (default 15) – only within configurable working hours (weekdays/times), since there is no dependency on AFK data
+- **No timer running:** Reminder when no activity has been running for more than X minutes (default 15) – only within configurable working hours (weekdays/times), since there is no dependency on AFK data; notification action: "Open popover"
 - **Long-running activity:** Notice when the same activity has been running for more than X hours (default 3 h); notification actions: "Continue", "Stop", "Open popover"
-- **After restart / unlocking the screen:** The popover asks what the user did in between (retroactive entry for the gap, prefilled to the second), then whether to continue with that activity from now, otherwise which activity to start. Only if aw-manual was stopped / the screen was locked for at least `after_restart` / `after_unlock` (default 1 min each, `false` disables). After a shorter restart it only offers to continue the activity that was running.
-- **Idle reminder** notifications offer "Open popover"
+- **After restart / unlocking the screen:** The popover asks what the user did in between (retroactive entry for the gap, prefilled to the second), then whether to continue with that activity from now (Shift+Y / Shift+N, so a search can still start with y or n; Enter starts the highlighted activity instead), otherwise which activity to start. Only if aw-manual was stopped / the screen was locked for at least `after_restart` / `after_unlock` (default 1 min each, `false` disables). After a shorter restart it only offers to continue the activity that was running.
 - **Offline:** One-time notice when entries are being buffered
 - Status permanently visible in the tray (see 5.2)
 

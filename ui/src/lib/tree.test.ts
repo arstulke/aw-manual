@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { leaves } from "./fuzzy";
-import { ancestorIds, backIndex, parentId } from "./tree";
+import { backIndex, parentId } from "./tree";
 import type { Favorite } from "./types";
 
 const f = (id: string, children?: Favorite[]): Favorite => ({
@@ -23,7 +23,6 @@ describe("tree", () => {
   it("parents", () => {
     expect(parentId("a/b/c")).toBe("a/b");
     expect(parentId("a")).toBeNull();
-    expect(ancestorIds("a/b/c")).toEqual(["a", "a/b"]);
   });
   it("back jumps to the first leaf of the folder, then of the previous folder", () => {
     const tree = [f("a", [f("a/x"), f("a/y")]), f("b", [f("b/p"), f("b/q"), f("b/r")]), f("e")];

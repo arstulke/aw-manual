@@ -1,15 +1,9 @@
 # Spec: Manual Activity Tracker for ActivityWatch
 
-> Working title: **aw-manual** (name still open, see [Open Questions](#11-open-questions))
-> Status: Draft v0.7 · Date: 2026-10-10
+> Status: v1.0 · implemented in aw-manual 0.1 (MVP) · Date: 2026-10-16
 >
-> **Changelog**
-> - v0.7: Compact favorites notation (titles as keys, properties prefixed with `_`) alongside the explicit list notation; color and icon inherited down the hierarchy
-> - v0.6: Configuration switched from TOML to YAML; favorites moved into a separate folder with multiple files (`favorites.d/`) to support generated favorites
-> - v0.5: Translated to English; scroll mode limited to start/stop; OpenAction plugin moved back to Phase 2
-> - v0.4: Timeline with click-drag removed; only leaves startable; changing a note creates a new activity; no automatic resume after restart; dwell-time confirmation in scroll mode; mouse as reference device; configurable status bar display
-> - v0.3: Favorite action bound to a fixed ID with snapshot fallback for deleted favorites; new "Custom Activity" action independent of app config; event field `origin`
-> - v0.2: Stream Deck (HID) and generic hardware interface replaced by an OpenAction plugin; popover operable with hotkey + scroll wheel only (scroll mode)
+> This document describes the intended behavior. The user documentation
+> ([README](../README.md), [docs](.)) describes the released state.
 
 ## 1. Goal and Context
 
@@ -444,7 +438,7 @@ A file can set `parent` (full ID of a folder or leaf) to hang its favorites unde
   - Base settings are written into `config.yaml`.
   - Favorites are edited in the file they come from; new top-level favorites go into `favorites.default_file` (`00-ui.yaml`) unless the user picks a file.
   - Files marked `generated: true` are shown read-only.
-  - Comments and order should be preserved when writing. Format-preserving YAML editing in Rust is less mature than for TOML; the library choice is part of the technical design (see open questions). If no suitable library exists, the UI only rewrites values it changed and warns before saving a file that contains comments.
+  - Comments and order are preserved when writing: the UI edits the source text at the spans of the parsed nodes instead of re-serializing the file. Layouts it can't edit safely (e.g. flow mappings) produce an error asking the user to edit the file by hand.
 
 ## 8. Distribution & Operations
 - **License:** Open source (suggestion: MPL-2.0, like ActivityWatch)
@@ -486,11 +480,8 @@ A file can set `parent` (full ID of a folder or leaf) to hang its favorites unde
 - Timeline view with visual editing (click-drag) and context from other AW buckets
 - Retroactive entries and notes in scroll mode
 
-## 11. Open Questions
-1. **Project name**, which also determines the bucket prefix and CLI command
-2. **YAML library:** Which Rust library preserves comments and mapping order when reading and writing YAML files? Order preservation on read is mandatory for the compact notation. To be evaluated at the start of implementation.
+## 11. Decisions
 
-### Decided
 | Question | Decision |
 |---|---|
 | OpenAction plugin in MVP | No, Phase 2 (keypad actions); rotary knob in Phase 3 |
@@ -505,3 +496,5 @@ A file can set `parent` (full ID of a folder or leaf) to hang its favorites unde
 | Reference scroll device | Regular desktop mouse |
 | Configuration format | YAML; base config and favorites folder separated |
 | Favorites notation | Compact (titles as keys, `_`-prefixed properties) and explicit (list of objects); color/icon inherited |
+| Project name | aw-manual (bucket `aw-manual_<hostname>`, CLI `aw-manual`) |
+| YAML library | `saphyr-parser` with an own document model that keeps order and source positions; comment-preserving edits on the source text (`crates/core/src/yaml_edit.rs`) |

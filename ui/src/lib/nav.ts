@@ -1,4 +1,4 @@
-import { parentId } from "./tree";
+import { backIndex } from "./tree";
 import type { Favorite } from "./types";
 
 /** An item of the scroll-mode list. */
@@ -88,26 +88,11 @@ export class ExpandedTree {
 
   back(): void {
     const items = this.items();
-    const group = (i: number) => {
-      const it = items[i];
-      return it?.kind === "leaf" ? parentId(it.fav.id) ?? "" : null;
-    };
-    const g = group(this.index);
-    if (g === null) return;
-    // Start of the current group: leaves of the same folder directly above.
-    let start = this.index;
-    while (start > 0 && group(start - 1) === g) start--;
-    if (start !== this.index) {
-      this.index = start;
-      return;
-    }
-    // Already there: the first leaf of the previous group.
-    let i = start - 1;
-    while (i >= 0 && items[i].kind === "heading") i--;
-    const prev = group(i);
-    if (prev === null) return;
-    while (i > 0 && group(i - 1) === prev) i--;
-    this.index = i;
+    const leafIndices = items.flatMap((it, i) => (it.kind === "leaf" ? [i] : []));
+    const pos = leafIndices.indexOf(this.index);
+    if (pos === -1) return;
+    const leaves = leafIndices.map((i) => (items[i] as Extract<NavItem, { kind: "leaf" }>).fav);
+    this.index = leafIndices[backIndex(leaves, pos)];
   }
 
   confirm(): NavAction {

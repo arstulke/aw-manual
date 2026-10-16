@@ -76,6 +76,16 @@ cd crates/daemon
 The GitHub workflow builds all of them and attaches them to a draft release
 for `v*` tags.
 
+## Releasing
+
+1. Set the new version in `Cargo.toml` (`workspace.package.version`; the Nix
+   package reads it from there), `crates/daemon/tauri.conf.json` and
+   `ui/package.json`, then run `cargo check` and `(cd ui && npm install)` so
+   `Cargo.lock` and `ui/package-lock.json` follow.
+2. Commit, then tag and push: `git tag v0.1.0 && git push origin v0.1.0`.
+3. CI builds and tests everything and creates a **draft** GitHub release with
+   the deb, dmg, msi and exe packages. Add release notes and publish it.
+
 ## Design notes
 
 - The daemon is the only component that talks to aw-server and holds state.

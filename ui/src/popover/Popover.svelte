@@ -36,7 +36,7 @@
   let dwellArmed = $state(false);
   let dwellKey = $state(0);
 
-  let drill = new ExpandedTree([], null);
+  let scrollTree = new ExpandedTree([], null);
   const wheel = new WheelSteps();
   let dwellTimer: ReturnType<typeof setTimeout> | undefined;
   let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
@@ -62,9 +62,9 @@
   const kbIndexOf = $derived(new Map(kbList.map((fav, i) => [fav.id, i] as [string, number])));
   const navItems = $derived.by<NavItem[]>(() => {
     void navVersion;
-    return drill.items();
+    return scrollTree.items();
   });
-  /** Index of each heading / leaf in navItems (tree layout rendering). */
+  /** Index of each heading / leaf in navItems (tree rendering). */
   const navIndexOf = $derived(
     new Map(navItems.flatMap((it, i) => (it.kind === "heading" || it.kind === "leaf" ? [[`${it.kind}:${it.fav.id}`, i] as [string, number]] : []))),
   );
@@ -86,11 +86,11 @@
 
   const navIndex = $derived.by(() => {
     void navVersion;
-    return drill.index;
+    return scrollTree.index;
   });
   const highlightedPath = $derived.by(() => {
     void navVersion;
-    if (mode === "scroll") return drill.highlightedPath();
+    if (mode === "scroll") return scrollTree.highlightedPath();
     return kbList[kbIndex]?.path ?? [];
   });
   const source = $derived(mode === "scroll" ? "popover-scroll" : "popover");
@@ -103,7 +103,7 @@
   async function refresh() {
     try {
       snap = await api.snapshot();
-      drill.update(snap.favorites, snap.status.running?.id ?? null);
+      scrollTree.update(snap.favorites, snap.status.running?.id ?? null);
       navVersion++;
     } catch (e) {
       error = errorText(e);
@@ -164,8 +164,8 @@
     kbIndex = 0;
     await refresh();
     if (!snap) return;
-    drill = new ExpandedTree(snap.favorites, snap.status.running?.id ?? null);
-    drill.startAt(snap.scroll.start_at);
+    scrollTree = new ExpandedTree(snap.favorites, snap.status.running?.id ?? null);
+    scrollTree.startAt(snap.scroll.start_at);
     navVersion++;
     const fav = opened?.favorite ? findFavorite(snap.favorites, opened.favorite) : null;
     if (fav && fav.type === "leaf") {
@@ -377,7 +377,7 @@
   }
 
   function confirmScroll() {
-    const action = drill.confirm();
+    const action = scrollTree.confirm();
     navVersion++;
     restartTimeout();
     switch (action.kind) {
@@ -403,13 +403,13 @@
     if (mode === "scroll") {
       switch (cmd) {
         case "next":
-          drill.next();
+          scrollTree.next();
           navVersion++;
           armDwell();
           restartTimeout();
           break;
         case "prev":
-          drill.prev();
+          scrollTree.prev();
           navVersion++;
           armDwell();
           restartTimeout();
@@ -422,7 +422,7 @@
         case "back":
           clearTimeout(dwellTimer);
           dwellArmed = false;
-          drill.back();
+          scrollTree.back();
           navVersion++;
           restartTimeout();
           break;
@@ -472,7 +472,7 @@
       mode = "keyboard";
       clearTimers();
       // Continue where scroll mode was: highlight its leaf, or the running one.
-      const item = drill.current();
+      const item = scrollTree.current();
       await tick();
       kbIndex = 0;
       if (!(item.kind === "leaf" && highlight(item.fav.id)) && running) highlight(running.id);
@@ -678,13 +678,13 @@
     if (busy) return;
     clearTimeout(dwellTimer);
     dwellArmed = false;
-    const item = drill.current();
+    const item = scrollTree.current();
     if (item.kind === "leaf") askNote(item.fav);
   }
 
   function clickNav(i: number) {
     if (navItems[i]?.kind === "heading") return;
-    drill.index = i;
+    scrollTree.index = i;
     navVersion++;
     clearTimeout(dwellTimer);
     dwellArmed = false;
@@ -704,7 +704,7 @@
     tick().then(() => {
       const el = listEl?.querySelector<HTMLElement>(".hl");
       if (!el || !listEl) return;
-      // Leave room for the sticky headings above the item (tree layout).
+      // Leave room for the sticky headings above the item .
       const covered = Number(el.dataset.depth ?? 0) * HEADING_PX;
       const list = listEl.getBoundingClientRect();
       const r = el.getBoundingClientRect();

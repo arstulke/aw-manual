@@ -6,16 +6,9 @@ export function parentId(id: string): string | null {
   return i === -1 ? null : id.slice(0, i);
 }
 
-/** All ancestor IDs of an ID, from the top level down. */
-export function ancestorIds(id: string): string[] {
-  const out: string[] = [];
-  for (let p = parentId(id); p !== null; p = parentId(p)) out.unshift(p);
-  return out;
-}
-
 /**
- * "Back" over leaves in tree order (keyboard mode): the first leaf of the
- * current folder, or of the previous folder when already there.
+ * "Back" over leaves in tree order (keyboard and scroll mode): the first leaf
+ * of the current folder, or of the previous folder when already there.
  */
 export function backIndex(leaves: Favorite[], index: number): number {
   if (!leaves[index]) return index;

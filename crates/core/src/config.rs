@@ -6,6 +6,7 @@ use std::time::Duration;
 use chrono::{NaiveTime, Weekday};
 use serde::Serialize;
 
+use crate::devices::{self, DeviceAction, DeviceConfig};
 use crate::duration::{format_duration, parse_duration};
 use crate::format::{ElapsedFormat, Template, TimeFormat};
 use crate::yaml::{self, Node, NodeKind, YamlError};
@@ -33,6 +34,9 @@ pub struct Config {
     pub popover: PopoverConfig,
     pub cli: CliConfig,
     pub log: LogConfig,
+    /// Hardware input devices: one entry per driver mentioned in `devices:`.
+    /// Empty (everything off) by default.
+    pub devices: Vec<DeviceConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -253,6 +257,7 @@ impl Default for Config {
             log: LogConfig {
                 level: "info".into(),
             },
+            devices: Vec::new(),
         }
     }
 }
@@ -312,6 +317,21 @@ cli:
 
 log:
   level: info                       # error | warn | info | debug | trace
+
+# Hardware devices, all off by default. `aw-manual devices list` shows what is
+# connected and the values for `device`.
+# devices:
+#   timebuzzer:
+#     enabled: true
+#     device:                       # name, usb_id and/or path (at least one)
+#       usb_id: "1234:abcd"
+#     long_press: 600ms
+#     bindings:                     # these are the defaults
+#       press: popover              # popover | open | stop | resume | next | prev | confirm | back | cancel | favorite:<id> | none
+#       long_press: stop
+#       turn_left: prev
+#       turn_right: next
+#       hover: open                 # a hand approaches the buzzer
 "##;
 
 /// Collects validation errors for one file.
@@ -551,6 +571,7 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
             "popover",
             "cli",
             "log",
+            "devices",
         ],
         &mut errs,
     );
@@ -936,12 +957,126 @@ pub fn parse_config(src: &str) -> Result<Config, Vec<YamlError>> {
         }
     }
 
+    if let Some(d_node) = entry(top, "devices") {
+        let known: Vec<&str> = devices::drivers().iter().map(|d| d.id()).collect();
+        let s = section(d_node, "devices", &known, &mut errs);
+        for drv in devices::drivers() {
+            if let Some(n) = entry(s, drv.id()) {
+                if let Some(dc) = parse_device(*drv, n, &mut errs) {
+                    cfg.devices.push(dc);
+                }
+            }
+        }
+    }
+
     if errs.0.is_empty() {
         Ok(cfg)
     } else {
         errs.0.sort_by_key(|e| (e.line, e.col));
         Err(errs.0)
     }
+}
+
+/// Reads `devices.<driver>`.
+fn parse_device(drv: &dyn devices::Driver, node: &Node, errs: &mut Errors) -> Option<DeviceConfig> {
+    let path = format!("devices.{}", drv.id());
+    let s = Some(section(
+        node,
+        &path,
+        &["enabled", "device", "long_press", "bindings"],
+        errs,
+    )?);
+    let mut dc = DeviceConfig::new(drv);
+    read_bool(
+        entry(s, "enabled"),
+        &format!("{path}.enabled"),
+        &mut dc.enabled,
+        errs,
+    );
+
+    if let Some(n) = entry(s, "device") {
+        let d = section(
+            n,
+            &format!("{path}.device"),
+            &["name", "usb_id", "path"],
+            errs,
+        );
+        let mut name = None;
+        let mut usb_id = None;
+        let mut dev_path = None;
+        read_opt_string(
+            entry(d, "name"),
+            &format!("{path}.device.name"),
+            &mut name,
+            errs,
+        );
+        read_opt_string(
+            entry(d, "usb_id"),
+            &format!("{path}.device.usb_id"),
+            &mut usb_id,
+            errs,
+        );
+        read_opt_string(
+            entry(d, "path"),
+            &format!("{path}.device.path"),
+            &mut dev_path,
+            errs,
+        );
+        if let (Some(id), Some(n)) = (&usb_id, entry(d, "usb_id")) {
+            if let Err(e) = devices::validate_usb_id(id) {
+                errs.push(n, format!("{path}.device.usb_id: {e}"));
+            }
+        }
+        dc.selector.name = name;
+        dc.selector.usb_id = usb_id.map(|s| s.to_ascii_lowercase());
+        dc.selector.path = dev_path.map(PathBuf::from);
+    }
+    if dc.enabled && dc.selector.is_empty() {
+        errs.push(
+            node,
+            format!(
+                "{path} is enabled but \"device\" selects nothing: set name, usb_id or path (see `aw-manual devices list`)"
+            ),
+        );
+    }
+
+    if let Some(n) = entry(s, "long_press") {
+        let mut v = None;
+        read_opt_duration(Some(n), &format!("{path}.long_press"), &mut v, errs);
+        match v {
+            Some(d) => dc.long_press = d,
+            None if n.as_bool() == Some(false) || n.as_scalar() == Some("off") => errs.push(
+                n,
+                format!(
+                    "\"{path}.long_press\" cannot be disabled; bind long_press to none instead"
+                ),
+            ),
+            None => {}
+        }
+    }
+
+    if let Some(n) = entry(s, "bindings") {
+        let names: Vec<&str> = drv.inputs().iter().map(|i| i.name).collect();
+        let b = section(n, &format!("{path}.bindings"), &names, errs);
+        for input in &names {
+            let Some(v) = entry(b, input) else { continue };
+            let parsed = match v.as_scalar() {
+                _ if v.as_bool() == Some(false) || v.is_null() => Ok(None),
+                Some(text) => DeviceAction::parse(text),
+                None => Err("must be an action".to_string()),
+            };
+            match parsed {
+                Ok(action) => {
+                    dc.bindings.retain(|(name, _)| name != input);
+                    if let Some(a) = action {
+                        dc.bindings.push((input.to_string(), a));
+                    }
+                }
+                Err(e) => errs.push(v, format!("{path}.bindings.{input}: {e}")),
+            }
+        }
+    }
+    Some(dc)
 }
 
 pub fn validate_server_url(url: &str) -> Result<(), String> {
@@ -1134,6 +1269,61 @@ popover:
     #[test]
     fn after_restart_true_is_an_error() {
         assert!(parse_config("notifications:\n  after_restart: true\n").is_err());
+    }
+
+    #[test]
+    fn devices_are_off_by_default() {
+        assert_eq!(parse_config("").unwrap().devices, vec![]);
+        assert_eq!(Config::default().devices, vec![]);
+    }
+
+    #[test]
+    fn device_with_defaults_and_overrides() {
+        let src = "devices:\n  timebuzzer:\n    enabled: true\n    device:\n      usb_id: ABCD:0012\n      name: buzz\n    long_press: 1s\n    bindings:\n      press: favorite:acme/dev\n      turn_left: none\n";
+        let c = parse_config(src).unwrap();
+        assert_eq!(c.devices.len(), 1);
+        let d = &c.devices[0];
+        assert!(d.enabled);
+        assert_eq!(d.selector.usb_id.as_deref(), Some("abcd:0012"));
+        assert_eq!(d.selector.name.as_deref(), Some("buzz"));
+        assert_eq!(d.long_press, Duration::from_secs(1));
+        assert_eq!(
+            d.bindings,
+            vec![
+                ("long_press".to_string(), DeviceAction::Stop),
+                (
+                    "turn_right".to_string(),
+                    DeviceAction::Nav(crate::ipc::NavCommand::Next)
+                ),
+                ("hover".to_string(), DeviceAction::OpenPopover),
+                (
+                    "press".to_string(),
+                    DeviceAction::Favorite("acme/dev".into())
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn enabled_device_needs_a_selection() {
+        let errs = parse_config("devices:\n  timebuzzer:\n    enabled: true\n").unwrap_err();
+        assert!(errs[0].message.contains("selects nothing"), "{errs:?}");
+        assert!(parse_config("devices:\n  timebuzzer:\n    enabled: false\n").is_ok());
+    }
+
+    #[test]
+    fn device_errors() {
+        for src in [
+            "devices:\n  streamdeck: {}\n",
+            "devices:\n  timebuzzer:\n    color: red\n",
+            "devices:\n  timebuzzer:\n    device:\n      usb_id: nope\n",
+            "devices:\n  timebuzzer:\n    bindings:\n      press: explode\n",
+            "devices:\n  timebuzzer:\n    bindings:\n      scroll: next\n",
+            "devices:\n  timebuzzer:\n    long_press: false\n",
+            "devices:\n  timebuzzer:\n    long_press: 0s\n",
+        ] {
+            assert!(parse_config(src).is_err(), "{src}");
+        }
     }
 
     #[test]

@@ -23,6 +23,43 @@
       "type": "string",
       "pattern": "^([01]?\\d|2[0-3]):[0-5]\\d$",
       "description": "A time of day such as \"08:00\" (quote it in YAML)."
+    },
+    "deviceAction": {
+      "description": "popover | open | stop | resume | next | prev | confirm | back | cancel | favorite:<id> | none (also empty, null or false).",
+      "oneOf": [
+        { "type": "string", "pattern": "^(popover|open|stop|resume|next|prev|confirm|back|cancel|none|favorite:.+)?$" },
+        { "type": "null" },
+        { "const": false }
+      ]
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "device": {
+          "type": "object",
+          "description": "Which hardware to use (see `aw-manual devices list`); at least one field is required when enabled.",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string", "description": "Part of the card name or description (case-insensitive)." },
+            "usb_id": { "type": "string", "pattern": "^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}$" },
+            "path": { "type": "string", "description": "Fixed device node. Card numbers change between plug-ins, so prefer name or usb_id." }
+          }
+        },
+        "long_press": { "$ref": "#/$defs/duration", "default": "600ms" },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "press": { "$ref": "#/$defs/deviceAction", "default": "popover" },
+            "long_press": { "$ref": "#/$defs/deviceAction", "default": "stop" },
+            "turn_left": { "$ref": "#/$defs/deviceAction", "default": "prev" },
+            "turn_right": { "$ref": "#/$defs/deviceAction", "default": "next" },
+            "hover": { "$ref": "#/$defs/deviceAction", "default": "open" }
+          }
+        }
+      }
     }
   },
   "properties": {
@@ -179,6 +216,12 @@
       "properties": {
         "level": { "enum": ["error", "warn", "info", "debug", "trace"], "default": "info" }
       }
+    },
+    "devices": {
+      "type": "object",
+      "description": "Hardware input devices, all off by default.",
+      "additionalProperties": false,
+      "properties": { "timebuzzer": { "$ref": "#/$defs/device" } }
     }
   }
 }

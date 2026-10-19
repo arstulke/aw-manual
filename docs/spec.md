@@ -103,7 +103,7 @@ Example event:
   }
 }
 ```
-- `source`: `popover` | `popover-scroll` | `tray` | `cli` | `openaction` | `hotkey`
+- `source`: `popover` | `popover-scroll` | `tray` | `cli` | `openaction` | `hotkey` | `device`
 - Optional `device`: for `openaction`, the device name provided by the OpenAction server
 - `entry`: `timer` | `retro`
 - `origin`: `config` (favorite from the config) | `deck` (Custom Activity or orphaned favorite using snapshot data) | `adhoc` (freely defined via CLI)

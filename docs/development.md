@@ -54,6 +54,23 @@ For manual testing without touching your real setup, point aw-manual to other
 folders: `AW_MANUAL_CONFIG_DIR`, `AW_MANUAL_DATA_DIR`, `AW_MANUAL_SOCKET`.
 `cargo run -p aw-manual-core --example headless` runs a daemon without UI.
 
+## Adding a hardware device
+
+Devices live in `crates/core/src/devices/`: a `Driver` decodes the bytes of a
+kind of device into `Signal`s (buttons, one-shot triggers); `Gestures` turns
+buttons into `press` / `long_press`; `discovery` finds connected hardware;
+`runner` reads the node and reconnects. The daemon (`crates/daemon/src/devices.rs`)
+maps inputs to actions. For a new device (for example a Stream Deck):
+
+1. Add a module with a `Driver` implementation (ID, inputs, default bindings,
+   decoder) and list it in `devices::drivers()`.
+2. Add its ID to the `devices` section of `schemas/config.schema.json`.
+3. For a new transport (HID, …), add a `Transport` variant, a discovery
+   function and a byte reader; the rest is shared.
+
+Never put vendor/product IDs or `/dev` paths in code: users select hardware
+in `config.yaml` with values from `aw-manual devices list`.
+
 ## Packaging
 
 ```sh

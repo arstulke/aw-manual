@@ -11,6 +11,7 @@
 
 mod app;
 mod commands;
+mod devices;
 mod hotkeys;
 mod icons;
 mod lock;

@@ -13,7 +13,7 @@ use aw_manual_core::service::{Service, Ui};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
 
-use crate::{commands, hotkeys, lock, notifications, popover, tray, watcher, Options};
+use crate::{commands, devices, hotkeys, lock, notifications, popover, tray, watcher, Options};
 
 pub type Svc = Service<TauriUi>;
 
@@ -88,6 +88,7 @@ pub fn run(endpoint: Endpoint, options: Options) {
         .plugin(tauri_plugin_opener::init())
         .manage(HotkeyErrors::default())
         .manage(hotkeys::MouseActions::default())
+        .manage(devices::Devices::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_snapshot,
             commands::start_favorite,
@@ -136,6 +137,7 @@ pub fn run(endpoint: Endpoint, options: Options) {
             popover::create(&handle)?;
             tray::create(&handle, &svc)?;
             hotkeys::apply(&handle, &svc.config());
+            devices::apply(&handle, &svc.config());
             watcher::spawn(svc.clone());
             spawn_change_listener(handle.clone(), svc.clone());
             spawn_tray_ticker(handle.clone(), svc.clone());
@@ -219,6 +221,9 @@ fn spawn_change_listener(app: AppHandle, svc: Arc<Svc>) {
             let config = svc.config();
             if config.hotkeys != last_config.hotkeys {
                 hotkeys::apply(&app, &config);
+            }
+            if config.devices != last_config.devices {
+                devices::apply(&app, &config);
             }
             last_config = config;
             tray::update(&app, &svc);

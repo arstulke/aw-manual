@@ -12,6 +12,9 @@ aw-manual status [--json] [--format TEMPLATE] [--follow]
 aw-manual list [--json]             # favorites with hierarchy and order
 aw-manual config check [--strict] [--json]
 aw-manual config path               # print the configuration folder
+aw-manual devices setup [DRIVER]       # interactive: pick a connected device, test it, save it to config.yaml
+aw-manual devices list [--json]     # supported hardware drivers and connected devices (usb_id, nodes)
+aw-manual devices monitor DRIVER [--path NODE]   # print the inputs of a device and their actions
 aw-manual popover                   # open the popover, or confirm if it is open
 aw-manual nav next|prev|confirm|back|cancel
 aw-manual watch                     # stream state changes as JSON lines

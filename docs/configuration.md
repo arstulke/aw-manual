@@ -125,6 +125,53 @@ longer than 0 and can be disabled with `false`.
 | `notifications.after_unlock` | The lock state is checked every 2 s, so shorter locks may go unnoticed |
 | `popover.scroll.dwell_time` | Disabled by default. Scroll mode closes after 10 s without input (longer when the dwell time needs it) |
 
+## Hardware devices
+
+Hardware input devices are **off by default**. Supported:
+
+| Driver | Device | Connection |
+|---|---|---|
+| `timebuzzer` | timeBuzzer (button, rotary ring) | USB MIDI, Linux only |
+
+No hardware IDs or `/dev` paths are built in. `aw-manual devices setup` walks
+you through it (choose the connected device, test it by using it, change
+bindings if you like) and writes the result into `config.yaml` while keeping
+your comments. Or look up what is connected and select it in `config.yaml` by hand:
+
+```sh
+aw-manual devices setup [driver]   # interactive: pick, test and save
+aw-manual devices list              # drivers, their inputs, connected devices with usb_id and node
+aw-manual devices monitor timebuzzer   # print every input and the action it triggers
+```
+
+```yaml
+devices:
+  timebuzzer:
+    enabled: true
+    device:                         # at least one of name, usb_id, path; all given ones must match
+      usb_id: "1234:abcd"           # from `aw-manual devices list`
+      # name: timeBuzzer            # part of the card name (case-insensitive)
+      # path: /dev/snd/midiC5D0     # fixed node; card numbers change between plug-ins
+    long_press: 600ms               # a press at least this long is `long_press`
+    bindings:                       # these are the defaults
+      press: popover                # open the popover, or confirm when it is open
+      long_press: stop
+      turn_left: prev               # navigate the open popover
+      turn_right: next
+      hover: open                   # hand above the buzzer: open the popover (never confirms)
+```
+
+Actions: `popover`, `open` (opens the popover, never confirms), `stop`, `resume`, `next`, `prev`, `confirm`, `back`,
+`cancel` (the last five only act on an open popover), `favorite:<id>`, and
+`none` (or `false`) to unbind an input. With the defaults the device operates
+the popover's scroll mode: press, turn to the activity, press again.
+Entries are recorded with `source: device`.
+
+The daemon reconnects when the device is plugged in later or removed, and
+applies changes of the `devices` section without a restart. Reading the
+device node needs access to `/dev/snd` (usually the `audio` group or the
+active seat's ACL); `devices list` tells you if it is not readable.
+
 ## Favorites files
 
 Each file in `favorites.d/` contains favorites under the key `favorites`.

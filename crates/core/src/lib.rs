@@ -4,6 +4,7 @@
 
 pub mod aw;
 pub mod config;
+pub mod devices;
 pub mod display;
 pub mod duration;
 pub mod engine;

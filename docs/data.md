@@ -40,7 +40,7 @@ central aw-server. aw-manual never modifies other buckets.
 | `path` | titles from the top level down |
 | `kind` | `activity` or `status` |
 | `note` | free text; omitted when empty |
-| `source` | `popover`, `popover-scroll`, `tray`, `cli`, `openaction`, `hotkey` |
+| `source` | `popover`, `popover-scroll`, `tray`, `cli`, `openaction`, `hotkey`, `device` |
 | `device` | OpenAction device name (phase 2); omitted otherwise |
 | `entry` | `timer` (tracked live) or `retro` (retroactive entry) |
 | `origin` | `config` (favorite), `deck` (defined on an OpenAction key), `adhoc` (CLI `--adhoc`) |

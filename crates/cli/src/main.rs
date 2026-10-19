@@ -1,5 +1,7 @@
 //! `aw-manual` – command line interface of the aw-manual daemon.
 
+mod setup;
+
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -90,6 +92,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ConfigCmd,
     },
+    /// Hardware input devices (timeBuzzer, …).
+    Devices {
+        #[command(subcommand)]
+        cmd: DevicesCmd,
+    },
     /// Open the popover, or confirm the highlighted item if it is already open.
     Popover,
     /// Send a navigation command to the open popover.
@@ -119,6 +126,25 @@ enum ConfigCmd {
     },
     /// Print the configuration directory.
     Path,
+}
+
+#[derive(Subcommand)]
+enum DevicesCmd {
+    /// Interactively set up a device: pick it from the connected ones, test it, save it to config.yaml.
+    Setup {
+        /// Driver ID, e.g. timebuzzer (asked for when omitted and several exist).
+        driver: Option<String>,
+    },
+    /// List supported drivers and connected devices, with the values for `devices.<driver>.device`.
+    List,
+    /// Print what a device sends and which action each input triggers (Ctrl+C to quit).
+    Monitor {
+        /// Driver ID, e.g. timebuzzer.
+        driver: String,
+        /// Read this device node instead of the one selected in config.yaml.
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
 }
 
 #[derive(Args)]
@@ -475,6 +501,14 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Config {
             cmd: ConfigCmd::Path,
         } => out(&paths::config_dir().display().to_string()),
+        Cmd::Devices { cmd } => match cmd {
+            DevicesCmd::Setup { driver } => setup::run(driver).map_err(|e| match e {
+                setup::SetupError::Invalid(m) => Failure::new(exit::INVALID, m),
+                setup::SetupError::Other(m) => Failure::new(exit::ERROR, m),
+            }),
+            DevicesCmd::List => devices_list(json),
+            DevicesCmd::Monitor { driver, path } => devices_monitor(&driver, path),
+        },
         Cmd::Popover => {
             let r = request("popover", json!({"source": "cli"}))?;
             if json {
@@ -769,6 +803,112 @@ fn list(json: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn devices_list(json: bool) -> Result<()> {
+    use aw_manual_core::devices::{self, discovery};
+    let config = local_config();
+    let found = discovery::discover_midi(&discovery::Roots::default())
+        .map_err(|e| Failure::new(exit::UNAVAILABLE, e))?;
+    let enabled = |id: &str| config.devices.iter().any(|c| c.driver == id && c.enabled);
+    if json {
+        let drivers: Vec<Value> = devices::drivers()
+            .iter()
+            .map(|d| {
+                json!({
+                    "id": d.id(),
+                    "title": d.title(),
+                    "transport": d.transport(),
+                    "enabled": enabled(d.id()),
+                    "inputs": d.inputs().iter().map(|i| json!({"name": i.name, "description": i.description})).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        return print_json(&json!({"schema_version": 1, "drivers": drivers, "devices": found}));
+    }
+    println!("Drivers (enable them in config.yaml under `devices:`):");
+    for d in devices::drivers() {
+        let state = if enabled(d.id()) { "enabled" } else { "off" };
+        println!(
+            "  {:<12} {} ({:?}, {state})",
+            d.id(),
+            d.title(),
+            d.transport()
+        );
+        for i in d.inputs() {
+            println!("      {:<12} {}", i.name, i.description);
+        }
+    }
+    println!();
+    if found.is_empty() {
+        println!("No MIDI devices connected.");
+        return Ok(());
+    }
+    println!("Connected MIDI devices (use one value below as `device:` of a driver):");
+    for d in &found {
+        println!("  {} ({})", d.name, d.description);
+        match &d.usb_id {
+            Some(id) => println!("      usb_id: \"{id}\""),
+            None => println!("      name: \"{}\"", d.name),
+        }
+        for n in &d.nodes {
+            println!("      node:   {}", n.display());
+        }
+        if !d.readable {
+            println!("      not readable by you (add your user to the \"audio\" group)");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn devices_monitor(driver: &str, path: Option<PathBuf>) -> Result<()> {
+    use aw_manual_core::devices::{self, DeviceConfig};
+    let drv = devices::driver(driver).ok_or_else(|| {
+        Failure::new(
+            exit::NOT_FOUND,
+            format!(
+                "unknown driver \"{driver}\" (available: {})",
+                devices::drivers()
+                    .iter()
+                    .map(|d| d.id())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        )
+    })?;
+    let mut cfg = local_config()
+        .devices
+        .into_iter()
+        .find(|c| c.driver == driver)
+        .unwrap_or_else(|| DeviceConfig::new(drv));
+    if let Some(p) = path {
+        cfg.selector = devices::DeviceSelector {
+            path: Some(p),
+            ..Default::default()
+        };
+    }
+    if cfg.selector.is_empty() {
+        return Err(Failure::new(
+            exit::INVALID,
+            "no device selected: set devices.<driver>.device in config.yaml or pass --path (see `aw-manual devices list`)",
+        ));
+    }
+    eprintln!("Waiting for {} … (Ctrl+C to quit)", drv.title());
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    devices::runner::run(&cfg, &stop, |input| match cfg.action(input) {
+        Some(a) => println!("{input:<12} → {a}"),
+        None => println!("{input:<12} → (no action)"),
+    });
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn devices_monitor(_driver: &str, _path: Option<PathBuf>) -> Result<()> {
+    Err(Failure::new(
+        exit::UNAVAILABLE,
+        "hardware devices are only supported on Linux",
+    ))
 }
 
 fn config_check(strict: bool, json: bool) -> Result<()> {

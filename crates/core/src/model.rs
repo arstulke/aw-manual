@@ -16,6 +16,7 @@ pub enum Source {
     Cli,
     Openaction,
     Hotkey,
+    Device,
 }
 
 impl Source {
@@ -27,6 +28,7 @@ impl Source {
             Source::Cli => "cli",
             Source::Openaction => "openaction",
             Source::Hotkey => "hotkey",
+            Source::Device => "device",
         }
     }
 }

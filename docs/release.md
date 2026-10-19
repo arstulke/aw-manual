@@ -30,13 +30,14 @@ Two separate human errors, and nothing in CI noticed either of them.
 1. **One source of truth.** The version is written in exactly one place:
    `workspace.package.version` in the root `Cargo.toml`. Everything else
    derives it from there.
-2. **The tag follows the code, not the other way around.** A release tag is
-   created from the version on `main` by a script, never typed by hand.
+2. **The tag follows the code, not the other way around.** Nobody creates
+   release tags. Merging a new version to `main` is the release: CI builds it,
+   creates the `v<version>` tag on that commit and the draft release.
 3. **CI verifies the result, not just the inputs.** Even with a single source
    of truth, CI checks the built installers, so a regression in the tooling (for
    example a Tauri update that changes the fallback) is caught as well.
-4. **Fail before publishing.** Every check runs before the draft release is
-   created; a wrong tag never produces a release with assets.
+4. **Fail before publishing.** Every check runs before the tag and the draft
+   release are created.
 
 ## Single source of truth
 
@@ -64,45 +65,53 @@ Alternatives considered:
 ## Release process
 
 ```sh
-# 1. In a branch / PR (or directly on main): set the version.
 node scripts/version.mjs bump 0.3.0     # Cargo.toml + Cargo.lock
-git commit -am "chore(release): v0.3.0" # merge it to main
-
-# 2. On an up-to-date main: tag exactly that version.
-git switch main && git pull
-node scripts/version.mjs tag --push
+git commit -am "chore(release): v0.3.0" # open a PR and merge it to main
 ```
 
-3. CI builds and tests everything and creates a **draft** GitHub release. Add
-   release notes and publish it.
+That's all. The push to `main` runs the pipeline:
+
+1. The `Version` job checks the single source of truth and runs
+   `version.mjs release-info`: a version counts as released when its
+   `v<version>` tag exists. If it doesn't, the push releases it.
+2. Tests and bundles run as on every push.
+3. The `GitHub release` job (only on `main`, only for an unreleased version)
+   checks the installers, creates the annotated tag `v<version>` on the built
+   commit and a **draft** GitHub release with the deb, dmg, msi and exe
+   packages. Add release notes and publish it.
+
+Pushes to `main` that don't change the version release nothing. A tag check is
+used instead of diffing `Cargo.toml` against the previous commit: if a release
+run fails (for example a flaky bundle job), the next push to `main`, or a re-run,
+still releases the version instead of skipping it. The tag step never moves an
+existing tag; re-running it on the same commit is a no-op.
+
+The pipeline no longer runs for pushed tags, so a tag created by hand builds
+and releases nothing.
 
 `bump` refuses versions that are not `x.y.z` (MSI only accepts numeric
-versions) or not newer than the current one. `tag` refuses to run unless the
-tree is clean, `main` is in sync with `origin/main`, the version checks pass,
-the tag doesn't exist yet and the version is newer than the latest release. It
-never asks for a version: it tags the one in `Cargo.toml`, so the tag and the
-version cannot disagree.
+versions) or not newer than the current one. `release-info` fails (on PRs as
+well) if an unreleased version is not newer than the latest release, so a typo
+like `0.1.5` after `0.2.1` is caught before merging.
 
 ## Safety net in CI
 
-The guards don't rely on anyone running the script:
-
-| Where                         | Check                                                                              | Catches                                |
-| ----------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------- |
-| `Version` job (every push/PR) | `version.mjs check`: single source of truth, lock file in sync                      | a second version reappearing (v0.2.1)  |
-| `Version` job (tag pushes)    | `version.mjs check --tag vX.Y.Z`: tag equals `Cargo.toml` version; bundles need this job | tag without bump (v0.2.0)        |
+| Where                         | Check                                                                               | Catches                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------- |
+| `Version` job (every push/PR) | `version.mjs check`: single source of truth, lock file in sync                       | a second version reappearing (v0.2.1)   |
+| `Version` job (every push/PR) | `version.mjs release-info`: an unreleased version is newer than the latest release   | version going backwards                 |
 | `Bundle` jobs                 | `version.mjs assets`: every installer name carries `_<version>_`; the deb's control `Version` matches | tooling regressions, wrong metadata |
-| `GitHub release` job          | both checks again on the downloaded artifacts, before the draft release is created | anything that slipped through          |
+| `GitHub release` job          | both checks again on the downloaded artifacts, before tagging                       | anything that slipped through           |
 
-A tag pushed by hand still works, but if it doesn't match `Cargo.toml` the
-pipeline stops before building installers, and no release is created. Delete
-the tag (`git push --delete origin vX.Y.Z`), bump, and tag again.
+The v0.2.0 mistake (a tag without a bump) can no longer happen: tags are only
+created by CI, from the version in the tree.
 
 Optional hardening in the repository settings:
 
-- A tag ruleset for `v*` that restricts who can create tags and blocks
-  updating or deleting published ones.
 - Branch protection on `main` requiring the `Version` check.
+- A tag ruleset for `v*` that blocks updating or deleting tags. If it also
+  restricts creation, allow GitHub Actions to bypass it, since the pipeline
+  creates the tags.
 
 ## Fixing v0.2.0 and v0.2.1
 
@@ -110,7 +119,7 @@ The binaries of v0.2.1 are correct; only the installer names and metadata are
 not. v0.2.0 is wrong throughout. Both can't be fixed in place without moving
 the tags, which would make the same tag point to different code. Options:
 
-1. **Recommended:** release **v0.2.2** from `main` with this fix, and add a
+1. **Recommended:** release **v0.2.2** (`version.mjs bump 0.2.2`) with this fix, and add a
    note to the v0.2.0 and v0.2.1 release descriptions that their installers
    report `0.1.0` and should be replaced with v0.2.2. Upgrades work, since
    0.2.2 is newer than both 0.1.0 and 0.2.1.

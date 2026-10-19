@@ -100,14 +100,12 @@ The version lives only in `Cargo.toml` (`workspace.package.version`); crates,
 installers and the Nix package take it from there. See [Release
 versioning](release.md) for the background and the CI checks.
 
-1. Set the version and merge it to `main`:
-   `node scripts/version.mjs bump 0.3.0` (updates `Cargo.toml` and `Cargo.lock`).
-2. On an up-to-date `main`, tag exactly that version:
-   `node scripts/version.mjs tag --push`.
-3. CI verifies that the tag matches `Cargo.toml` and that every package
-   carries the version, builds and tests everything and creates a **draft**
-   GitHub release with the deb, dmg, msi and exe packages. Add release notes
-   and publish it.
+1. Set the version: `node scripts/version.mjs bump 0.3.0` (updates
+   `Cargo.toml` and `Cargo.lock`), commit and merge it to `main`.
+2. The push to `main` releases it: CI checks that every package carries the
+   version, builds and tests everything, creates the `v0.3.0` tag and a
+   **draft** GitHub release with the deb, dmg, msi and exe packages. Add
+   release notes and publish it.
 
 ## Design notes
 

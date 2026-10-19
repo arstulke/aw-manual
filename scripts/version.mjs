@@ -5,14 +5,15 @@
 //
 // Usage:
 //   node scripts/version.mjs                       print the version
-//   node scripts/version.mjs check [--tag <tag>]   verify the single source of
-//                                                  truth (and that a release
-//                                                  tag matches it)
+//   node scripts/version.mjs check                 verify the single source of
+//                                                  truth
 //   node scripts/version.mjs assets <file|dir>...  verify that release assets
 //                                                  carry the version
 //   node scripts/version.mjs bump <x.y.z>          set the version (Cargo.toml
 //                                                  and Cargo.lock)
-//   node scripts/version.mjs tag [--push]          tag the version on main
+//   node scripts/version.mjs release-info          whether the version is
+//                                                  unreleased (no v<version>
+//                                                  tag yet), for CI
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -81,16 +82,11 @@ function problems(version) {
   return out;
 }
 
-function check(args) {
+function check() {
   const version = readVersion();
   const out = problems(version);
-  const ti = args.indexOf("--tag");
-  const tag = ti !== -1 ? args[ti + 1] : null;
-  if (tag && tag !== `v${version}`) {
-    out.push(`tag ${tag} does not match Cargo.toml version ${version}: bump the version before tagging (node scripts/version.mjs bump <x.y.z>)`);
-  }
   if (out.length) throw new Failure(out.join("\n"));
-  console.log(`version ${version}: ok${tag ? ` (tag ${tag})` : ""}`);
+  console.log(`version ${version}: ok`);
 }
 
 function listAssets(paths) {
@@ -152,43 +148,32 @@ function bump(args) {
   writeFileSync(CARGO_LOCK, lock);
   const left = problems(version);
   if (left.length) throw new Failure(left.join("\n"));
-  console.log(`version ${current} -> ${version}: commit Cargo.toml and Cargo.lock and merge to main, then run \`node scripts/version.mjs tag\``);
+  console.log(`version ${current} -> ${version}: commit Cargo.toml and Cargo.lock and merge to main, CI then tags and releases it`);
 }
 
-// Tags the version that is on main, so tag and version cannot disagree.
-function tag(args) {
+// A version is released when its tag exists. An untagged version must be newer
+// than every release; CI then builds, tags and releases it from main. Prints
+// `version=…` and `release=true|false` (the GitHub Actions output format).
+function releaseInfo() {
   const version = readVersion();
-  const out = problems(version);
-  if (out.length) throw new Failure(out.join("\n"));
-  if (git("status", "--porcelain")) throw new Failure("the working tree has uncommitted changes");
-  const branch = git("rev-parse", "--abbrev-ref", "HEAD");
-  if (branch !== "main") throw new Failure(`releases are tagged on main, not ${branch}`);
-  git("fetch", "--quiet", "--tags", "origin", "main");
-  if (git("rev-parse", "HEAD") !== git("rev-parse", "origin/main")) {
-    throw new Failure("main is not in sync with origin/main: pull first");
+  const tags = git("tag", "--list", "v*").split("\n").map((t) => t.slice(1)).filter((v) => SEMVER.test(v));
+  const release = !tags.includes(version);
+  if (release) {
+    const latest = tags.find((v) => !tags.some((o) => newer(o, v)));
+    if (latest && !newer(version, latest)) {
+      throw new Failure(`version ${version} is not newer than the latest release v${latest}`);
+    }
   }
-  if (git("tag", "--list", `v${version}`)) {
-    throw new Failure(`v${version} is already released: bump the version first (node scripts/version.mjs bump <x.y.z>)`);
-  }
-  const older = git("tag", "--list", "v*").split("\n").map((t) => t.slice(1)).filter((v) => SEMVER.test(v));
-  const latest = older.find((v) => !older.some((o) => newer(o, v)));
-  if (latest && !newer(version, latest)) throw new Failure(`${version} is not newer than the latest release v${latest}`);
-  git("tag", "--annotate", `v${version}`, "-m", `v${version}`);
-  if (args.includes("--push")) {
-    git("push", "origin", `v${version}`);
-    console.log(`tagged and pushed v${version}; CI builds the draft release`);
-  } else {
-    console.log(`tagged v${version}; push with: git push origin v${version}`);
-  }
+  console.log(`version=${version}\nrelease=${release}`);
 }
 
 try {
   const [cmd = "print", ...args] = process.argv.slice(2);
   if (cmd === "print") console.log(readVersion());
-  else if (cmd === "check") check(args);
+  else if (cmd === "check") check();
   else if (cmd === "assets") assets(args);
   else if (cmd === "bump") bump(args);
-  else if (cmd === "tag") tag(args);
+  else if (cmd === "release-info") releaseInfo();
   else throw new Failure(`unknown command ${cmd}`);
 } catch (e) {
   if (!(e instanceof Failure)) throw e;

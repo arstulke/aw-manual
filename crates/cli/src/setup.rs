@@ -257,7 +257,7 @@ fn customize_bindings(config: &mut DeviceConfig, drv: &dyn Driver) -> Result<(),
     if !confirm("Change something?", false)? {
         return Ok(());
     }
-    println!("Actions: popover, open, stop, resume, next, prev, confirm, back, cancel, favorite:<id>, none. Enter keeps the current action.");
+    println!("Actions: popover, open, close, stop, resume, next, prev, confirm, back, cancel, favorite:<id>, none. Enter keeps the current action.");
     for i in drv.inputs() {
         let current = config.action(i.name).cloned();
         loop {

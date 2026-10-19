@@ -90,6 +90,9 @@ pub enum DeviceAction {
     Popover,
     /// Open the popover if it is closed; does nothing when it is open.
     OpenPopover,
+    /// Close the popover if the `open` action opened it and nothing was
+    /// confirmed in it since; otherwise does nothing.
+    ClosePopover,
     Stop,
     Resume,
     /// Navigate the open popover (ignored while it is closed).
@@ -99,7 +102,7 @@ pub enum DeviceAction {
 }
 
 impl DeviceAction {
-    /// Parses `popover`, `stop`, `resume`, `next`, `prev`, `confirm`, `back`,
+    /// Parses `popover`, `open`, `close`, `stop`, `resume`, `next`, `prev`, `confirm`, `back`,
     /// `cancel` or `favorite:<id>`. `Ok(None)` means "no action".
     pub fn parse(s: &str) -> Result<Option<DeviceAction>, String> {
         let s = s.trim();
@@ -107,6 +110,7 @@ impl DeviceAction {
             "" | "none" => return Ok(None),
             "popover" => DeviceAction::Popover,
             "open" => DeviceAction::OpenPopover,
+            "close" => DeviceAction::ClosePopover,
             "stop" => DeviceAction::Stop,
             "resume" => DeviceAction::Resume,
             "next" => DeviceAction::Nav(NavCommand::Next),
@@ -118,7 +122,7 @@ impl DeviceAction {
                 Some(id) if !id.trim().is_empty() => DeviceAction::Favorite(id.trim().into()),
                 _ => {
                     return Err(format!(
-                    "unknown action \"{other}\" (use popover, open, stop, resume, next, prev, confirm, back, cancel, favorite:<id> or none)"
+                    "unknown action \"{other}\" (use popover, open, close, stop, resume, next, prev, confirm, back, cancel, favorite:<id> or none)"
                 ))
                 }
             },
@@ -131,6 +135,7 @@ impl fmt::Display for DeviceAction {
         match self {
             DeviceAction::Popover => f.write_str("popover"),
             DeviceAction::OpenPopover => f.write_str("open"),
+            DeviceAction::ClosePopover => f.write_str("close"),
             DeviceAction::Stop => f.write_str("stop"),
             DeviceAction::Resume => f.write_str("resume"),
             DeviceAction::Nav(NavCommand::Next) => f.write_str("next"),
@@ -237,6 +242,7 @@ mod tests {
         for s in [
             "popover",
             "open",
+            "close",
             "stop",
             "resume",
             "next",

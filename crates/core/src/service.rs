@@ -96,6 +96,7 @@ pub struct Service<U: Ui> {
     writer: Writer,
     loaded: RwLock<Loaded>,
     changes: broadcast::Sender<()>,
+    device_inputs: broadcast::Sender<Value>,
     ui: U,
     /// When the previous daemon was last known to be running (taken once).
     previous_alive: Mutex<Option<DateTime<Utc>>>,
@@ -170,6 +171,7 @@ impl<U: Ui> Service<U> {
         let w = writer.clone();
         engine.set_queue_listener(move || w.notify());
         let (changes, _) = broadcast::channel(64);
+        let (device_inputs, _) = broadcast::channel(64);
 
         let svc = Arc::new(Service {
             config_dir,
@@ -183,6 +185,7 @@ impl<U: Ui> Service<U> {
                 cache,
             }),
             changes,
+            device_inputs,
             ui,
             previous_alive: Mutex::new(previous_alive),
         });
@@ -276,6 +279,14 @@ impl<U: Ui> Service<U> {
     /// Fires after every change of state, favorites, configuration or connection.
     pub fn subscribe(&self) -> broadcast::Receiver<()> {
         self.changes.subscribe()
+    }
+
+    /// Publishes an input of a hardware device to `watch_inputs` subscribers
+    /// (`aw-manual devices monitor` can't read a device the daemon holds).
+    pub fn publish_device_input(&self, driver: &str, input: &str) {
+        let _ = self
+            .device_inputs
+            .send(json!({ "driver": driver, "input": input }));
     }
 
     /// Re-reads `config.yaml` and all favorites files. Invalid files keep
@@ -447,5 +458,9 @@ impl<U: Ui> ipc::Handler for Service<U> {
 
     fn subscribe(&self) -> broadcast::Receiver<()> {
         self.changes.subscribe()
+    }
+
+    fn subscribe_inputs(&self) -> broadcast::Receiver<Value> {
+        self.device_inputs.subscribe()
     }
 }

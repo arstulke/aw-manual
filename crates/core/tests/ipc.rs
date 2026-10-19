@@ -207,3 +207,62 @@ async fn round_trips() {
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn watch_inputs_streams_device_inputs() {
+    // arrange
+    let dir = tempdir("inputs");
+    let cfg = dir.join("config");
+    std::fs::create_dir_all(&cfg).unwrap();
+    let svc = Service::start(
+        cfg,
+        &dir.join("db.sqlite"),
+        Headless {
+            shutdown: Arc::new(tokio::sync::Notify::new()),
+        },
+    )
+    .unwrap();
+    #[cfg(unix)]
+    let ep = Endpoint::Path(dir.join("run/daemon.sock"));
+    #[cfg(windows)]
+    let ep = Endpoint::Pipe(format!("aw-manual-test-inputs-{}", std::process::id()));
+    let listener = ipc::bind(&ep).unwrap();
+    tokio::spawn(ipc::serve(listener, svc.clone()));
+    let (subscribed_tx, subscribed_rx) = std::sync::mpsc::channel();
+    let watcher = tokio::task::spawn_blocking({
+        let ep = ep.clone();
+        move || {
+            let mut client = ipc::Client::connect(&ep).unwrap();
+            let mut seen = Vec::new();
+            subscribed_tx.send(()).unwrap();
+            client
+                .watch_inputs(|driver, input| {
+                    seen.push((driver.to_string(), input.to_string()));
+                    seen.len() < 2
+                })
+                .unwrap();
+            seen
+        }
+    });
+
+    // act
+    subscribed_rx.recv().unwrap();
+    for _ in 0..50 {
+        svc.publish_device_input("timebuzzer", "press");
+        svc.publish_device_input("timebuzzer", "turn_left");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        if watcher.is_finished() {
+            break;
+        }
+    }
+    let seen = watcher.await.unwrap();
+
+    // assert
+    assert_eq!(
+        seen,
+        vec![
+            ("timebuzzer".to_string(), "press".to_string()),
+            ("timebuzzer".to_string(), "turn_left".to_string()),
+        ]
+    );
+}

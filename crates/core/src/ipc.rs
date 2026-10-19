@@ -343,6 +343,29 @@ impl Client {
     }
 }
 
+impl Client {
+    /// Subscribes to the inputs of the hardware devices the daemon reads; calls
+    /// `f(driver, input)` for each. Returns when `f` returns false or the
+    /// connection ends.
+    pub fn watch_inputs(
+        &mut self,
+        mut f: impl FnMut(&str, &str) -> bool,
+    ) -> Result<(), ClientError> {
+        self.call("watch_inputs", Value::Null)?;
+        loop {
+            let line = self.read_line()?;
+            if let Ok(p) = serde_json::from_str::<Push>(&line) {
+                if p.event == "device_input" {
+                    let field = |k: &str| p.data[k].as_str().unwrap_or_default().to_string();
+                    if !f(&field("driver"), &field("input")) {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Connects and performs a single call, with a timeout.
 pub fn call(
     ep: &Endpoint,
@@ -374,6 +397,9 @@ pub trait Handler: Send + Sync + 'static {
     fn status(&self) -> impl std::future::Future<Output = Value> + Send;
     /// Notifies about state changes for `watch`.
     fn subscribe(&self) -> tokio::sync::broadcast::Receiver<()>;
+    /// Notifies about every input of a hardware device for `watch_inputs`
+    /// (`{"driver": …, "input": …}`).
+    fn subscribe_inputs(&self) -> tokio::sync::broadcast::Receiver<Value>;
 }
 
 /// Binds the endpoint. Fails with `AddrInUse` if another daemon is listening.
@@ -482,6 +508,33 @@ async fn handle_conn<H: Handler>(
             };
             write_json(&mut send, &resp).await?;
             continue;
+        }
+        if req.method == "watch_inputs" {
+            let mut rx = handler.subscribe_inputs();
+            let resp = Response {
+                id: req.id,
+                ok: true,
+                result: Some(Value::Null),
+                error: None,
+            };
+            write_json(&mut send, &resp).await?;
+            loop {
+                tokio::select! {
+                    r = rx.recv() => match r {
+                        Ok(data) => {
+                            write_json(&mut send, &Push { event: "device_input".into(), data }).await?;
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+                    },
+                    l = lines.next_line() => {
+                        // EOF ends the stream.
+                        if l?.is_none() {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
         }
         if req.method == "watch" {
             let mut rx = handler.subscribe();

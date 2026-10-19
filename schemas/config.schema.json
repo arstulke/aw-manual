@@ -56,7 +56,8 @@
             "long_press": { "$ref": "#/$defs/deviceAction", "default": "stop" },
             "turn_left": { "$ref": "#/$defs/deviceAction", "default": "prev" },
             "turn_right": { "$ref": "#/$defs/deviceAction", "default": "next" },
-            "hover": { "$ref": "#/$defs/deviceAction", "default": "open" }
+            "hover_start": { "$ref": "#/$defs/deviceAction", "default": "open" },
+            "hover_end": { "$ref": "#/$defs/deviceAction", "default": "close" }
           }
         }
       }

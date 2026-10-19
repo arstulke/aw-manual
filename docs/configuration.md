@@ -158,10 +158,12 @@ devices:
       long_press: stop
       turn_left: prev               # navigate the open popover
       turn_right: next
-      hover: open                   # hand above the buzzer: open the popover (never confirms)
+      hover_start: open             # hand above the buzzer: open the popover (never confirms)
+      hover_end: close              # hand leaves: close the popover if hover_start opened it
 ```
 
-Actions: `popover`, `open` (opens the popover, never confirms), `stop`, `resume`, `next`, `prev`, `confirm`, `back`,
+Actions: `popover`, `open` (opens the popover, never confirms), `close` (closes a popover that `open` opened, as long as nothing was
+confirmed in it, so a note field you are typing into stays), `stop`, `resume`, `next`, `prev`, `confirm`, `back`,
 `cancel` (the last five only act on an open popover), `favorite:<id>`, and
 `none` (or `false`) to unbind an input. With the defaults the device operates
 the popover's scroll mode: press, turn to the activity, press again.

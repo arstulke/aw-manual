@@ -16,6 +16,8 @@ use tauri::{
 use crate::app::Svc;
 
 pub const LABEL: &str = "popover";
+/// `Opened::trigger` of a popover opened by a hand above a device.
+pub const HOVER_TRIGGER: &str = "hover";
 const WIDTH: f64 = 500.0;
 /// Tall enough for the questions after a restart or unlock plus several rows.
 const HEIGHT: f64 = 580.0;
@@ -27,6 +29,9 @@ struct State {
     /// The latest request, also for a page that loads after the event was sent.
     last_opened: Mutex<Option<Opened>>,
     seq: std::sync::atomic::AtomicU64,
+    /// The visible popover was opened by a hovering hand and nothing was
+    /// confirmed in it yet, so the hand leaving closes it again.
+    opened_by_hover: AtomicBool,
 }
 
 /// Payload of the `popover:opened` event.
@@ -165,6 +170,9 @@ pub fn show_with(app: &AppHandle, mut opened: Opened) -> tauri::Result<()> {
     let state = app.state::<State>();
     *state.shown_at.lock().unwrap() = Some(Instant::now());
     state.visible.store(true, Ordering::SeqCst);
+    state
+        .opened_by_hover
+        .store(opened.trigger == HOVER_TRIGGER, Ordering::SeqCst);
     opened.seq = state.seq.fetch_add(1, Ordering::SeqCst) + 1;
     *state.last_opened.lock().unwrap() = Some(opened.clone());
     app.emit("popover:opened", opened)?;
@@ -177,6 +185,7 @@ pub fn hide(app: &AppHandle) -> tauri::Result<()> {
     tracing::debug!("hiding the popover");
     let state = app.state::<State>();
     state.visible.store(false, Ordering::SeqCst);
+    state.opened_by_hover.store(false, Ordering::SeqCst);
     let w = window(app)?;
     w.hide()?;
     let _ = app.emit("popover:closed", ());
@@ -197,6 +206,7 @@ pub fn open_or_confirm(app: &AppHandle, source: Source) -> tauri::Result<&'stati
             .scroll
             .confirm_with_hotkey;
         if confirm {
+            keep_open(app);
             app.emit("popover:nav", NavCommand::Confirm)?;
             Ok("confirmed")
         } else {
@@ -214,10 +224,35 @@ pub fn open_or_confirm(app: &AppHandle, source: Source) -> tauri::Result<&'stati
     }
 }
 
+/// Confirming may open a note field or a question; the popover then no longer
+/// closes when the hand leaves.
+fn keep_open(app: &AppHandle) {
+    app.state::<State>()
+        .opened_by_hover
+        .store(false, Ordering::SeqCst);
+}
+
+/// Closes the popover if a hovering hand opened it and nothing was confirmed
+/// in it since. Returns whether it was closed.
+pub fn close_if_opened_by_hover(app: &AppHandle) -> tauri::Result<bool> {
+    let hover = app
+        .state::<State>()
+        .opened_by_hover
+        .swap(false, Ordering::SeqCst);
+    if hover && is_visible(app) {
+        hide(app)?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 /// Forwards a navigation command to the open popover.
 pub fn nav(app: &AppHandle, command: NavCommand) -> tauri::Result<bool> {
     if !is_visible(app) {
         return Ok(false);
+    }
+    if command == NavCommand::Confirm {
+        keep_open(app);
     }
     app.emit("popover:nav", command)?;
     Ok(true)

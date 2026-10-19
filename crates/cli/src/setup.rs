@@ -156,8 +156,8 @@ fn pick_driver(id: Option<String>) -> Result<&'static dyn Driver, SetupError> {
 /// identifies the chosen one.
 fn pick_device(drv: &dyn Driver) -> Result<DeviceSelector, SetupError> {
     loop {
-        let found = discovery::discover_midi(&discovery::Roots::default())
-            .map_err(SetupError::Other)?;
+        let found =
+            discovery::discover_midi(&discovery::Roots::default()).map_err(SetupError::Other)?;
         if found.is_empty() {
             println!(
                 "No MIDI device is connected. Plug in the {} and wait a moment.",

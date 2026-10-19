@@ -327,11 +327,12 @@ log:
 #       usb_id: "1234:abcd"
 #     long_press: 600ms
 #     bindings:                     # these are the defaults
-#       press: popover              # popover | open | stop | resume | next | prev | confirm | back | cancel | favorite:<id> | none
+#       press: popover              # popover | open | close | stop | resume | next | prev | confirm | back | cancel | favorite:<id> | none
 #       long_press: stop
 #       turn_left: prev
 #       turn_right: next
-#       hover: open                 # a hand approaches the buzzer
+#       hover_start: open           # a hand approaches the buzzer
+#       hover_end: close            # the hand leaves; closes a popover that hover_start opened
 "##;
 
 /// Collects validation errors for one file.
@@ -1295,7 +1296,8 @@ popover:
                     "turn_right".to_string(),
                     DeviceAction::Nav(crate::ipc::NavCommand::Next)
                 ),
-                ("hover".to_string(), DeviceAction::OpenPopover),
+                ("hover_start".to_string(), DeviceAction::OpenPopover),
+                ("hover_end".to_string(), DeviceAction::ClosePopover),
                 (
                     "press".to_string(),
                     DeviceAction::Favorite("acme/dev".into())

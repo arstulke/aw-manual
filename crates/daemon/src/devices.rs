@@ -49,6 +49,8 @@ pub fn apply(app: &AppHandle, cfg: &Config) {
 }
 
 fn on_input(app: &AppHandle, device: &DeviceConfig, input: &str) {
+    app.state::<Arc<Svc>>()
+        .publish_device_input(&device.driver, input);
     let Some(action) = device.action(input).cloned() else {
         return;
     };
@@ -73,8 +75,11 @@ fn trigger(app: &AppHandle, action: &DeviceAction) -> Result<(), String> {
             if popover::is_visible(app) {
                 return Ok(());
             }
-            popover::show(app, "device").map_err(|e| e.to_string())
+            popover::show(app, popover::HOVER_TRIGGER).map_err(|e| e.to_string())
         }
+        DeviceAction::ClosePopover => popover::close_if_opened_by_hover(app)
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
         DeviceAction::Stop => svc
             .call("stop", json!({"source": source}))
             .map(|_| ())

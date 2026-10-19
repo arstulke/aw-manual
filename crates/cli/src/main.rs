@@ -882,6 +882,8 @@ fn devices_monitor(driver: &str, path: Option<PathBuf>) -> Result<()> {
         .into_iter()
         .find(|c| c.driver == driver)
         .unwrap_or_else(|| DeviceConfig::new(drv));
+    // Only a daemon that reads the configured device can report its inputs.
+    let via_daemon = cfg.enabled && path.is_none();
     if let Some(p) = path {
         cfg.selector = devices::DeviceSelector {
             path: Some(p),
@@ -895,11 +897,33 @@ fn devices_monitor(driver: &str, path: Option<PathBuf>) -> Result<()> {
         ));
     }
     eprintln!("Waiting for {} … (Ctrl+C to quit)", drv.title());
-    let stop = std::sync::atomic::AtomicBool::new(false);
-    devices::runner::run(&cfg, &stop, |input| match cfg.action(input) {
+    let show = |input: &str| match cfg.action(input) {
         Some(a) => println!("{input:<12} → {a}"),
         None => println!("{input:<12} → (no action)"),
-    });
+    };
+    // A running daemon holds the device and gets every byte, so ask it for the
+    // inputs instead of reading the device here.
+    if via_daemon {
+        let connected = endpoint()
+            .ok()
+            .and_then(|ep| ipc::Client::connect(&ep).ok());
+        if let Some(mut c) = connected {
+            let streamed = c.watch_inputs(|d, input| {
+                if d == driver {
+                    show(input);
+                }
+                true
+            });
+            if let Err(ClientError::Remote(e)) = streamed {
+                eprintln!(
+                    "The running daemon cannot forward inputs ({e}); restart it to update. Reading the device directly."
+                );
+            }
+            // Past this point the daemon is gone (or too old), so the device is ours.
+        }
+    }
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    devices::runner::run(&cfg, &stop, show);
     Ok(())
 }
 

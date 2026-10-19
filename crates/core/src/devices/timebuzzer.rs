@@ -52,8 +52,12 @@ impl Driver for TimeBuzzer {
                 description: "one step to the right",
             },
             InputInfo {
-                name: "hover",
+                name: "hover_start",
                 description: "a hand approaches the buzzer",
+            },
+            InputInfo {
+                name: "hover_end",
+                description: "the hand leaves the buzzer",
             },
         ]
     }
@@ -66,7 +70,8 @@ impl Driver for TimeBuzzer {
             ("long_press", DeviceAction::Stop),
             ("turn_left", DeviceAction::Nav(NavCommand::Prev)),
             ("turn_right", DeviceAction::Nav(NavCommand::Next)),
-            ("hover", DeviceAction::OpenPopover),
+            ("hover_start", DeviceAction::OpenPopover),
+            ("hover_end", DeviceAction::ClosePopover),
         ]
     }
 
@@ -98,11 +103,14 @@ impl Decoder for TimeBuzzerDecoder {
                     down: value > 0,
                 }),
                 CC_PROXIMITY => {
-                    // The device repeats its state; report only the approach.
-                    // A hand that is already there at connect time is not one.
+                    // The device repeats its state; report only the changes.
+                    // A hand that is already there at connect time is not an
+                    // approach, but its leaving is reported.
                     let near = value == 0;
-                    if self.near.replace(near) == Some(false) && near {
-                        out.push(Signal::Trigger("hover"));
+                    match self.near.replace(near) {
+                        Some(false) if near => out.push(Signal::Trigger("hover_start")),
+                        Some(true) if !near => out.push(Signal::Trigger("hover_end")),
+                        _ => {}
                     }
                 }
                 CC_TURN => {
@@ -185,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn hover_fires_once_per_approach() {
+    fn hover_reports_approach_and_leaving_once() {
         let mut d = TimeBuzzerDecoder::default();
         // Idle (repeated), approach (repeated), leave, approach again.
         let bytes = [
@@ -194,7 +202,11 @@ mod tests {
         ];
         assert_eq!(
             feed(&mut d, &bytes),
-            vec![Signal::Trigger("hover"), Signal::Trigger("hover")]
+            vec![
+                Signal::Trigger("hover_start"),
+                Signal::Trigger("hover_end"),
+                Signal::Trigger("hover_start"),
+            ]
         );
     }
 
@@ -202,6 +214,10 @@ mod tests {
     fn hand_already_there_at_connect_is_not_an_approach() {
         let mut d = TimeBuzzerDecoder::default();
         assert_eq!(feed(&mut d, &[0xbb, 0x51, 0x00, 0xbb, 0x51, 0x00]), vec![]);
+        assert_eq!(
+            feed(&mut d, &[0xbb, 0x51, 0x7f]),
+            vec![Signal::Trigger("hover_end")]
+        );
     }
 
     #[test]

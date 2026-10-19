@@ -124,7 +124,7 @@ mod tests {
         let mut d = device();
         d.long_press = std::time::Duration::from_secs(1);
         d.bindings
-            .retain(|(n, _)| !["press", "hover", "long_press"].contains(&n.as_str()));
+            .retain(|(n, _)| !["press", "hover_start", "long_press"].contains(&n.as_str()));
         d.bindings.push((
             "long_press".into(),
             DeviceAction::Favorite("acme/dev".into()),

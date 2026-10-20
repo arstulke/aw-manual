@@ -14,7 +14,8 @@ crates/daemon   aw-manual-daemon: Tauri v2 host (tray, popover and settings
 ui              Svelte 5 + Vite: popover and settings pages
 schemas         JSON schemas of config.yaml and favorites files
 nix             Nix package, NixOS and Home Manager modules
-scripts         build helpers (CLI sidecar for installers)
+scripts         build helpers (CLI sidecar for installers, version and
+                release checks)
 ```
 
 `cargo build` / `cargo test` at the root build the core and the CLI only
@@ -95,13 +96,16 @@ for `v*` tags.
 
 ## Releasing
 
-1. Set the new version in `Cargo.toml` (`workspace.package.version`; the Nix
-   package reads it from there), `crates/daemon/tauri.conf.json` and
-   `ui/package.json`, then run `cargo check` and `(cd ui && npm install)` so
-   `Cargo.lock` and `ui/package-lock.json` follow.
-2. Commit, then tag and push: `git tag v0.1.0 && git push origin v0.1.0`.
-3. CI builds and tests everything and creates a **draft** GitHub release with
-   the deb, dmg, msi and exe packages. Add release notes and publish it.
+The version lives only in `Cargo.toml` (`workspace.package.version`); crates,
+installers and the Nix package take it from there. See [Release
+versioning](release.md) for the background and the CI checks.
+
+1. Set the version: `node scripts/version.mjs bump 0.3.0` (updates
+   `Cargo.toml` and `Cargo.lock`), commit and merge it to `main`.
+2. The push to `main` releases it: CI checks that every package carries the
+   version, builds and tests everything, creates the `v0.3.0` tag and a
+   **draft** GitHub release with the deb, dmg, msi and exe packages. Add
+   release notes and publish it.
 
 ## Design notes
 

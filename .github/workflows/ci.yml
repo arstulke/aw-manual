@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -11,6 +10,23 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.info.outputs.version }}
+      release: ${{ steps.info.outputs.release }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the release tags
+      # Cargo.toml is the only place that holds the version. A version without
+      # a v<version> tag is released from main (docs/release.md).
+      - run: node scripts/version.mjs check
+      - id: info
+        shell: bash # with pipefail
+        run: node scripts/version.mjs release-info | tee -a "$GITHUB_OUTPUT"
+
   ui:
     name: UI (check & test)
     runs-on: ubuntu-24.04
@@ -78,7 +94,7 @@ jobs:
 
   bundle:
     name: Bundle (${{ matrix.name }})
-    needs: [ui, rust]
+    needs: [version, ui, rust]
     strategy:
       fail-fast: false
       matrix:
@@ -138,6 +154,8 @@ jobs:
           args=(--config tauri.release.conf.json --bundles ${{ matrix.bundles }})
           if [ "${{ matrix.name }}" = "macos" ]; then args+=(--target universal-apple-darwin); fi
           ../../ui/node_modules/.bin/tauri build "${args[@]}"
+      - name: Check the bundle versions
+        run: node scripts/version.mjs assets target/release/bundle target/universal-apple-darwin/release/bundle
       - uses: actions/upload-artifact@v4
         with:
           name: aw-manual-${{ matrix.name }}
@@ -149,18 +167,42 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: GitHub release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [bundle, nix]
+    name: GitHub release (v${{ needs.version.outputs.version }})
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.version.outputs.release == 'true'
+    needs: [version, bundle, nix]
     runs-on: ubuntu-24.04
+    concurrency: release
     permissions:
       contents: write
+    env:
+      TAG: v${{ needs.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
+      - name: Check the release version
+        run: |
+          node scripts/version.mjs check
+          node scripts/version.mjs assets artifacts
+      - name: Create the tag
+        run: |
+          # Idempotent, so a failed run can be re-run; never moves an existing tag.
+          # The last line is the commit (peeled, for an annotated tag).
+          remote=$(git ls-remote origin "refs/tags/$TAG" "refs/tags/$TAG^{}" | tail -n1 | cut -f1)
+          if [ "$remote" = "$GITHUB_SHA" ]; then
+            echo "$TAG already points to $GITHUB_SHA"
+          elif [ -n "$remote" ]; then
+            echo "::error::$TAG already exists on $remote"; exit 1
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag --annotate "$TAG" -m "$TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/$TAG"
+          fi
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
           files: artifacts/**/*
           draft: true

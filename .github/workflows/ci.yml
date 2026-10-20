@@ -17,7 +17,7 @@ jobs:
       version: ${{ steps.info.outputs.version }}
       release: ${{ steps.info.outputs.release }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the release tags
       # Cargo.toml is the only place that holds the version. A version without
@@ -34,8 +34,8 @@ jobs:
       run:
         working-directory: ui
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -49,7 +49,7 @@ jobs:
     name: Rust (fmt, clippy, tests)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: System libraries
         run: |
           sudo apt-get update
@@ -58,7 +58,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -87,7 +87,7 @@ jobs:
     name: Nix flake
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
       - run: nix flake check --no-build
       - run: nix build .#default -L
@@ -113,7 +113,7 @@ jobs:
             bundles: msi,nsis
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: System libraries
         if: matrix.name == 'linux'
         run: |
@@ -123,7 +123,7 @@ jobs:
         with:
           targets: ${{ matrix.name == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -156,7 +156,7 @@ jobs:
           ../../ui/node_modules/.bin/tauri build "${args[@]}"
       - name: Check the bundle versions
         run: node scripts/version.mjs assets target/release/bundle target/universal-apple-darwin/release/bundle
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: aw-manual-${{ matrix.name }}
           path: |
@@ -177,8 +177,8 @@ jobs:
     env:
       TAG: v${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -201,7 +201,7 @@ jobs:
             git tag --annotate "$TAG" -m "$TAG" "$GITHUB_SHA"
             git push origin "refs/tags/$TAG"
           fi
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.TAG }}
           files: artifacts/**/*
